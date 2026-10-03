@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{7A1C3E52-4B9D-4E1F-9C2A-1D5E8F6B3A01}</ProjectGuid>
+    <RootNamespace>Internalcs2</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>src;deps\imgui;deps\imgui\backends;deps\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;windowscodecs.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile><Optimization>Disabled</Optimization><RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary></ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile><Optimization>MaxSpeed</Optimization><RuntimeLibrary>MultiThreaded</RuntimeLibrary></ClCompile>
+    <Link><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\dllmain.cpp" />
+    <ClCompile Include="src\hooks.cpp" />
+    <ClCompile Include="src\menu.cpp" />
+    <ClCompile Include="src\mem.cpp" />
+    <ClCompile Include="src\game.cpp" />
+    <ClCompile Include="src\vpk.cpp" />
+    <ClCompile Include="src\kv.cpp" />
+    <ClCompile Include="src\items.cpp" />
+    <ClCompile Include="src\icons.cpp" />
+    <ClCompile Include="src\skins.cpp" />
+    <ClCompile Include="src\hands.cpp" />
+    <ClCompile Include="src\movement.cpp" />
+    <ClCompile Include="src\misc.cpp" />
+    <ClCompile Include="src\aim.cpp" />
+    <ClCompile Include="src\core\events.cpp" />
+    <ClCompile Include="src\core\log.cpp" />
+    <ClCompile Include="src\core\patterns.cpp" />
+    <ClCompile Include="src\core\settings.cpp" />
+    <ClCompile Include="src\core\wiring.cpp" />
+    <ClCompile Include="src\ui\svg.cpp" />
+    <ClCompile Include="src\ui\ui.cpp" />
+    <ClCompile Include="src\ui\render.cpp" />
+    <ClCompile Include="src\visuals.cpp" />
+    <ClCompile Include="src\glow.cpp" />
+    <ClCompile Include="src\visibility.cpp" />
+    <ClCompile Include="src\core\ray.cpp" />
+    <ClCompile Include="src\core\usercmd.cpp" />
+    <ClCompile Include="src\ragebot.cpp" />
+    <ClCompile Include="src\damage.cpp" />
+    <ClCompile Include="src\features\schema.cpp" />
+    <ClCompile Include="src\features\hitbox.cpp" />
+    <ClCompile Include="src\features\spread.cpp" />
+    <ClCompile Include="src\features\jumpcheck.cpp" />
+    <ClCompile Include="src\features\nospread.cpp" />
+    <ClCompile Include="deps\imgui\imgui.cpp" />
+    <ClCompile Include="deps\imgui\imgui_draw.cpp" />
+    <ClCompile Include="deps\imgui\imgui_tables.cpp" />
+    <ClCompile Include="deps\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="deps\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="deps\imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="deps\minhook\src\buffer.c" />
+    <ClCompile Include="deps\minhook\src\hook.c" />
+    <ClCompile Include="deps\minhook\src\trampoline.c" />
+    <ClCompile Include="deps\minhook\src\hde\hde64.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\hooks.h" />
+    <ClInclude Include="src\menu.h" />
+    <ClInclude Include="src\mem.h" />
+    <ClInclude Include="src\game.h" />
+    <ClInclude Include="src\vpk.h" />
+    <ClInclude Include="src\kv.h" />
+    <ClInclude Include="src\items.h" />
+    <ClInclude Include="src\icons.h" />
+    <ClInclude Include="src\skins.h" />
+    <ClInclude Include="src\hands.h" />
+    <ClInclude Include="src\movement.h" />
+    <ClInclude Include="src\misc.h" />
+    <ClInclude Include="src\aim.h" />
+    <ClInclude Include="src\core\events.h" />
+    <ClInclude Include="src\core\log.h" />
+    <ClInclude Include="src\core\patterns.h" />
+    <ClInclude Include="src\core\settings.h" />
+    <ClInclude Include="src\core\wiring.h" />
+    <ClInclude Include="src\ui\svg.h" />
+    <ClInclude Include="src\ui\ui.h" />
+    <ClInclude Include="src\ui\render.h" />
+    <ClInclude Include="src\ui\icons_svg.h" />
+    <ClInclude Include="src\visuals.h" />
+    <ClInclude Include="src\glow.h" />
+    <ClInclude Include="src\features\schema.h" />
+    <ClInclude Include="src\features\hitbox.h" />
+    <ClInclude Include="src\features\spread.h" />
+    <ClInclude Include="src\features\jumpcheck.h" />
+    <ClInclude Include="src\features\nospread.h" />
+    <ClInclude Include="src\features\vecmath.h" />
+    <ClInclude Include="src\visibility.h" />
+    <ClInclude Include="src\core\ray.h" />
+    <ClInclude Include="src\core\usercmd.h" />
+    <ClInclude Include="src\ragebot.h" />
+    <ClInclude Include="src\damage.h" />
+    <ClInclude Include="src\input.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
