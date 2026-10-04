@@ -101,14 +101,26 @@ bool ray::Trace(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandl
 
 bool ray::Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, void* target)
 {
-    Hit hit;
-    if (!Trace(from, to, skipHandle, kMaskShot, hit))
-        return false;
-    if (target && hit.entity == target)
-        return true;
     const float dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-    const float left = (1.f - hit.fraction) * std::sqrt(dx * dx + dy * dy + dz * dz);
-    return left < 1.f && (!hit.entity || !target || hit.fraction >= 1.f);
+    const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1.f)
+        return true;
+    const float ux = dx / len, uy = dy / len, uz = dz / len;
+    Hit world;
+    if (!Trace(from, to, skipHandle, kMaskWorld, world))
+        return false;
+    if ((1.f - world.fraction) * len > 2.f)
+        return false;
+    if (!target)
+        return true;
+    constexpr float kPast = 16.f;
+    const game::Vec3 end{ to.x + ux * kPast, to.y + uy * kPast, to.z + uz * kPast };
+    Hit shot;
+    if (!Trace(from, end, skipHandle, kMaskShot, shot))
+        return false;
+    if (shot.entity == target || shot.fraction >= 1.f)
+        return true;
+    return shot.fraction * (len + kPast) >= len - 8.f;
 }
 
 game::Vec3 ray::Forward(float pitch, float yaw, float length)

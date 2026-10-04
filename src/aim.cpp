@@ -375,6 +375,8 @@ namespace
         if (aim::legit && aim::Held(aim::legitKey))
         {
             Candidate c = Best(local, eye, aim::legitRcs ? bulletPitch : viewPitch, aim::legitRcs ? bulletYaw : viewYaw, aim::legitHitbox, aim::legitFov);
+            if (!c.pawn && aim::legitHitbox < 3)
+                c = Best(local, eye, aim::legitRcs ? bulletPitch : viewPitch, aim::legitRcs ? bulletYaw : viewYaw, 3, aim::legitFov);
             if (c.pawn)
             {
                 const float p = aim::legitRcs ? c.pitch - punch[0] : c.pitch;
