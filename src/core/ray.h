@@ -23,7 +23,7 @@ namespace ray
     bool Init();
     bool Ready();
     bool Trace(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, uint64_t mask, Hit& out);
-    bool Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, void* target);
+    bool Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, void* target, bool (*blocks)(void*) = nullptr);
     game::Vec3 Forward(float pitch, float yaw, float length);
     Stats Snapshot();
 }

@@ -18,19 +18,31 @@ namespace
     Slot slots[65];
     uint32_t localHandle = 0xffffffff;
 
+    bool IsPlayer(void* entity)
+    {
+        for (int i = 1; i <= 64; ++i)
+        {
+            const char* designer = nullptr;
+            void* c = game::EntityAt(i, &designer);
+            if (c && designer && !strcmp(designer, "cs_player_controller") && game::Handle(mem::At<uint32_t>(c, game::off.playerPawn)) == entity)
+                return mem::At<int>(entity, game::off.health) > 0;
+        }
+        return false;
+    }
+
     bool Check(void* pawn, const game::Vec3& eye)
     {
         Hitboxes::Box boxes[Hitboxes::kMax];
         const int count = Hitboxes::Collect(pawn, boxes, Hitboxes::kMax);
         for (int i = 0; i < count; ++i)
-            if (ray::Clear(eye, boxes[i].center, localHandle, pawn))
+            if (ray::Clear(eye, boxes[i].center, localHandle, pawn, IsPlayer))
                 return true;
         if (count > 0)
             return false;
         for (int bone : kBones)
         {
             game::Vec3 p;
-            if (game::Bone(pawn, bone, p) && ray::Clear(eye, p, localHandle, pawn))
+            if (game::Bone(pawn, bone, p) && ray::Clear(eye, p, localHandle, pawn, IsPlayer))
                 return true;
         }
         return false;
@@ -88,7 +100,7 @@ bool visibility::Point(void* pawn, const game::Vec3& eye, const game::Vec3& poin
 {
     if (!ray::Ready())
         return game::SpottedBy(pawn, game::LocalIndex());
-    return ray::Clear(eye, point, localHandle, pawn);
+    return ray::Clear(eye, point, localHandle, pawn, IsPlayer);
 }
 
 void visibility::Cleanup()

@@ -99,7 +99,7 @@ bool ray::Trace(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandl
     }
 }
 
-bool ray::Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, void* target)
+bool ray::Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandle, void* target, bool (*blocks)(void*))
 {
     const float dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
     const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
@@ -120,6 +120,8 @@ bool ray::Clear(const game::Vec3& from, const game::Vec3& to, uint32_t skipHandl
         return false;
     if (shot.entity == target || shot.fraction >= 1.f)
         return true;
+    if (shot.entity && blocks && blocks(shot.entity))
+        return false;
     return shot.fraction * (len + kPast) >= len - 8.f;
 }
 
