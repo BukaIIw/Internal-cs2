@@ -47,7 +47,23 @@ namespace
     constexpr std::uint32_t angle_has_all = 7;
 
     constexpr std::uintptr_t history_view_angles = 0x18;
+    constexpr std::uintptr_t history_cl_interp = 0x20;
+    constexpr std::uintptr_t history_sv_interp0 = 0x28;
+    constexpr std::uintptr_t history_sv_interp1 = 0x30;
     constexpr std::uintptr_t history_render_tick_count = 0x60;
+    constexpr std::uintptr_t history_render_tick_fraction = 0x64;
+    constexpr std::uint32_t history_has_cl_interp = 0x2;
+    constexpr std::uint32_t history_has_sv_interp0 = 0x4;
+    constexpr std::uint32_t history_has_sv_interp1 = 0x8;
+    constexpr std::uint32_t history_has_render_tick = 0x200 | 0x400;
+
+    constexpr std::uintptr_t interp_frac = 0x18;
+    constexpr std::uintptr_t interp_src_tick = 0x1C;
+    constexpr std::uintptr_t interp_dst_tick = 0x20;
+    constexpr std::size_t interp_size = 0x24;
+    constexpr std::size_t interp_cl_size = 0x1C;
+    constexpr std::uint32_t interp_has_all = 7;
+    constexpr std::uint32_t interp_has_frac = 1;
     constexpr std::uintptr_t history_player_tick_count = 0x68;
     constexpr std::uintptr_t history_player_tick_fraction = 0x6C;
     constexpr std::size_t history_entry_size = 0x70;
@@ -86,7 +102,8 @@ namespace
     {
         if (!systems::reads::readable(angles, angle_size) || !value.is_valid())
             return false;
-        const math::qangle clean = math::helpers::sanitized(value);
+        math::qangle clean = math::helpers::sanitized(value);
+        clean.z = math::helpers::normalized_angle(value.z);
         memory::write<float>(angles + angle_x, clean.x);
         memory::write<float>(angles + angle_y, clean.y);
         memory::write<float>(angles + angle_z, clean.z);
@@ -407,6 +424,40 @@ namespace systems
                 return -1;
             const int tick = memory::read<int>(entry + history_render_tick_count);
             return tick >= 0 ? tick : -1;
+        }
+
+        void usercmd::set_history_render_tick(int index, int tick)
+        {
+            const std::uintptr_t entry = history(index);
+            if (!entry || tick <= 0)
+                return;
+            std::uint32_t& bits = memory::ref<std::uint32_t>(entry + pb_has_bits);
+            memory::write<int>(entry + history_render_tick_count, tick);
+            memory::write<float>(entry + history_render_tick_fraction, 0.f);
+            bits |= history_has_render_tick;
+            const auto clear_server = [&](std::uintptr_t slot, std::uint32_t has)
+            {
+                if (!(bits & has))
+                    return;
+                const std::uintptr_t info = reads::pointer(entry + slot);
+                if (!reads::readable(info, interp_size))
+                    return;
+                memory::write<float>(info + interp_frac, 0.f);
+                memory::write<int>(info + interp_src_tick, -1);
+                memory::write<int>(info + interp_dst_tick, -1);
+                memory::ref<std::uint32_t>(info + pb_has_bits) |= interp_has_all;
+            };
+            clear_server(history_sv_interp0, history_has_sv_interp0);
+            clear_server(history_sv_interp1, history_has_sv_interp1);
+            if (bits & history_has_cl_interp)
+            {
+                const std::uintptr_t info = reads::pointer(entry + history_cl_interp);
+                if (reads::readable(info, interp_cl_size))
+                {
+                    memory::write<float>(info + interp_frac, 0.f);
+                    memory::ref<std::uint32_t>(info + pb_has_bits) |= interp_has_frac;
+                }
+            }
         }
 
         int usercmd::history_player_tick(int index) const

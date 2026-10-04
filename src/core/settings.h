@@ -60,12 +60,15 @@ namespace settings
             bool autofire = true;
             bool autowall = false;
             bool autostop = true;
+            bool autostop_air = false;
+            bool autostop_early = false;
+            bool autostop_landing = true;
             bool autoscope = true;
             float fov = 180.f;
             std::uint32_t hitboxes = hb_head | hb_chest | hb_stomach | hb_pelvis;
             std::uint32_t multipoint = hb_head | hb_chest | hb_stomach;
-            float head_scale = 0.75f;
-            float body_scale = 0.7f;
+            float head_scale = 0.6f;
+            float body_scale = 0.55f;
             int hitchance = 65;
             int minimum_damage = 30;
             keys::bind damage_override_key{ 0, keys::mode::hold };

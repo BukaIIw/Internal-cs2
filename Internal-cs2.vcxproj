@@ -72,6 +72,7 @@
     <ClCompile Include="src\features\changer\guns.cpp" />
     <ClCompile Include="src\features\changer\knives.cpp" />
     <ClCompile Include="src\features\combat\hitbox.cpp" />
+    <ClCompile Include="src\features\combat\backtrack.cpp" />
     <ClCompile Include="src\features\combat\hitchance.cpp" />
     <ClCompile Include="src\features\combat\legit.cpp" />
     <ClCompile Include="src\features\combat\rage.cpp" />
@@ -144,6 +145,7 @@
     <ClInclude Include="src\features\combat\combat.h" />
     <ClInclude Include="src\features\combat\combat_detail.h" />
     <ClInclude Include="src\features\combat\hitbox.h" />
+    <ClInclude Include="src\features\combat\backtrack.h" />
     <ClInclude Include="src\features\combat\hitchance.h" />
     <ClInclude Include="src\features\combat\spread.h" />
     <ClInclude Include="src\features\misc\misc.h" />

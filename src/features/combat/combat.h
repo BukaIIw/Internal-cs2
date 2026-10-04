@@ -20,6 +20,9 @@ namespace features::combat
         bool can_fire = false;
         bool reloading = false;
         int ticks_to_fire = 0;
+        int tick_base = 0;
+        int revolver_ready_tick = 0;
+        bool revolver_hauled = false;
         int shots_fired = 0;
         int group = 0;
         int clip = 0;

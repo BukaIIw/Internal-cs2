@@ -188,6 +188,12 @@ namespace features::combat
         ctx.reloading = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBase", "m_bInReload"_hash)) != 0;
         const int tick_base = pre.valid && pre.tick_base > 0 ? pre.tick_base : local.tick_base;
         ctx.ticks_to_fire = std::max(0, next_attack - tick_base);
+        ctx.tick_base = tick_base;
+        if (ctx.def == cstypes::weapon_id::revolver)
+        {
+            ctx.revolver_ready_tick = reads::field<int>(weapon, SCHEMA("C_CSWeaponBase", "m_nPostponeFireReadyTicks"_hash));
+            ctx.revolver_hauled = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBase", "m_bIsHauledBack"_hash)) != 0;
+        }
         ctx.can_fire = ctx.gun && ctx.clip > 0 && next_attack <= tick_base && !ctx.reloading;
         ctx.shots_fired = std::max(0, reads::field<int>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_iShotsFired"_hash)));
 

@@ -1,5 +1,6 @@
 #include "combat.h"
 #include "combat_detail.h"
+#include "backtrack.h"
 #include "hitbox.h"
 #include "hitchance.h"
 #include "spread.h"
@@ -25,7 +26,9 @@ namespace
     constexpr int rage_priority = 2;
     constexpr int nospread_priority = 3;
     constexpr int scope_wait_ticks = 16;
-    constexpr int autostop_ticks = 2;
+    constexpr int autostop_ticks = 1;
+    constexpr int backtrack_scans = 3;
+    constexpr int landing_ticks = 2;
     constexpr float scope_release_when = 0.5f;
     constexpr float damage_tolerance = 1.f;
     constexpr float percent = 100.f;
@@ -44,6 +47,7 @@ namespace
         bool penetrated = false;
         float damage = 0.f;
         float fov = 0.f;
+        int tick = 0;
         math::vector3 point{};
     };
 
@@ -113,7 +117,7 @@ namespace
         return next.fov < best.fov;
     }
 
-    bool probe(const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const hitbox::box& box, const math::vector3& point, bool autowall, candidate& out)
+    bool probe(const hitbox::set& boxes, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const hitbox::box& box, const math::vector3& point, bool autowall, candidate& out)
     {
         if (autowall)
         {
@@ -130,29 +134,26 @@ namespace
         if (direction.is_zero())
             return false;
         float distance = 0.f;
-        const int index = hitbox::nearest(g_scan_boxes, ctx.eye, direction, ctx.range, distance);
+        const int index = hitbox::nearest(boxes, ctx.eye, direction, ctx.range, distance);
         if (index < 0)
             return false;
         const math::vector3 end = ctx.eye + direction * distance;
         if (!systems::g_tracing.is_visible(local_pawn, player.pawn, ctx.eye, end))
             return false;
-        out.group = g_scan_boxes.boxes[index].group;
+        out.group = boxes.boxes[index].group;
         out.damage = detail::damage(ctx, player, out.group, distance);
         out.penetrated = false;
         return out.damage > 0.f;
     }
 
-    candidate scan_target(const settings::combat::rage& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const math::qangle& reference, float required, bool autowall, int& point_total)
+    candidate scan_boxes(const settings::combat::rage& cfg, const hitbox::set& boxes, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const math::qangle& reference, float required, bool autowall, std::uint32_t mask, int& point_total)
     {
         candidate best{};
-        if (!hitbox::collect(player.pawn, g_scan_boxes))
-            return best;
-
         math::vector3 points[hitbox::max_points]{};
-        for (int i = 0; i < g_scan_boxes.count; ++i)
+        for (int i = 0; i < boxes.count; ++i)
         {
-            const hitbox::box& box = g_scan_boxes.boxes[i];
-            if ((box.bit & cfg.hitboxes) == 0)
+            const hitbox::box& box = boxes.boxes[i];
+            if ((box.bit & mask) == 0)
                 continue;
             const bool multipoint = (box.bit & cfg.multipoint) != 0;
             const int count = hitbox::points(box, ctx.eye, multipoint, cfg.head_scale, cfg.body_scale, points, hitbox::max_points);
@@ -170,7 +171,7 @@ namespace
                     return best;
                 ++point_total;
                 candidate next{};
-                if (!probe(player, local_pawn, ctx, box, point, autowall, next) || next.damage < required)
+                if (!probe(boxes, player, local_pawn, ctx, box, point, autowall, next) || next.damage < required)
                     continue;
                 next.valid = true;
                 next.player = player;
@@ -185,6 +186,33 @@ namespace
             }
         }
         return best;
+    }
+
+    std::uint32_t target_mask(const settings::combat::rage& cfg, std::size_t slot)
+    {
+        const std::uint32_t body = cfg.hitboxes & ~static_cast<std::uint32_t>(settings::combat::hb_head);
+        if (body && backtrack::pitch_broken(static_cast<int>(slot)))
+            return body;
+        return cfg.hitboxes;
+    }
+
+    bool landing_soon(std::uintptr_t pawn, const math::vector3& origin, const math::vector3& velocity)
+    {
+        if (velocity.z >= 0.f)
+            return false;
+        const float fall = -velocity.z * cstypes::tick_interval * static_cast<float>(landing_ticks);
+        const math::vector3 end{ origin.x, origin.y, origin.z - std::max(fall, 1.f) - 1.f };
+        const systems::tracing::result tr = systems::g_tracing.trace_line(origin, end, pawn, cstypes::masks::world);
+        return tr.ok && tr.fraction < 1.f;
+    }
+
+    void cock_revolver(const weapon_context& ctx)
+    {
+        if (!ctx.can_fire)
+            return;
+        const bool about_to_fire = ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1;
+        if (!about_to_fire)
+            systems::g_view.hold_attack();
     }
 
     int required_damage(int configured, int health)
@@ -209,10 +237,12 @@ namespace features::combat
 
         if (g_state.scope_wait > 0)
             --g_state.scope_wait;
+        const weapon_context& ctx = g_shared.ctx();
+        if (global.enabled)
+            backtrack::update(ctx.tick_base);
         if (!frame.valid() || !keys::active(global.enabled, global.key))
             return;
 
-        const weapon_context& ctx = g_shared.ctx();
         const settings::combat::rage& cfg = settings::rage_for(ctx.group);
         systems::g_view.smooth_silent = cfg.silent_smooth;
         if (!ctx.valid || !ctx.gun || !ctx.eye.is_valid() || !systems::g_tracing.ready())
@@ -255,23 +285,58 @@ namespace features::combat
         {
             const systems::entities::player& player = players[order[i].slot];
             const float required = static_cast<float>(required_damage(configured, player.health));
-            const candidate next = scan_target(cfg, player, local.pawn, ctx, reference, required, autowall, point_total);
-            if (next.valid && better_target(next, best))
+            const std::uint32_t mask = target_mask(cfg, order[i].slot);
+            candidate player_best{};
+            const hitbox::set* player_boxes = nullptr;
+            if (hitbox::collect(player.pawn, g_scan_boxes))
             {
-                best = next;
-                g_best_boxes = g_scan_boxes;
+                player_best = scan_boxes(cfg, g_scan_boxes, player, local.pawn, ctx, reference, required, autowall, mask, point_total);
+                if (player_best.valid)
+                    player_boxes = &g_scan_boxes;
+            }
+            if (!player_best.valid || effective(player_best) < static_cast<float>(player.health))
+            {
+                const backtrack::record* records[backtrack::max_records]{};
+                const int count = backtrack::collect(static_cast<int>(order[i].slot), ctx.tick_base, records, backtrack::max_records);
+                const int picks[backtrack_scans]{ count - 1, count / 2, 1 };
+                for (int k = 0; k < backtrack_scans && point_total < point_budget; ++k)
+                {
+                    const int index = picks[k];
+                    if (index < 1 || index >= count || (k > 0 && index == picks[k - 1]))
+                        continue;
+                    const backtrack::record& rec = *records[index];
+                    candidate old = scan_boxes(cfg, rec.boxes, player, local.pawn, ctx, reference, required, false, mask, point_total);
+                    if (!old.valid)
+                        continue;
+                    if (!player_best.valid || effective(old) > effective(player_best) + damage_tolerance)
+                    {
+                        old.tick = rec.tick;
+                        player_best = old;
+                        player_boxes = &rec.boxes;
+                    }
+                }
+            }
+            if (player_best.valid && player_boxes && better_target(player_best, best))
+            {
+                best = player_best;
+                g_best_boxes = *player_boxes;
             }
         }
 
         debug.points = point_total;
         if (!best.valid)
+        {
+            if (ctx.def == cstypes::weapon_id::revolver && cfg.autofire)
+                cock_revolver(ctx);
             return;
+        }
 
         g_state.last_target = best.player.pawn_handle;
         debug.target = true;
         debug.hitgroup = best.group;
         debug.damage = best.damage;
 
+        const bool revolver = ctx.def == cstypes::weapon_id::revolver;
         bool scoping = false;
         if (cfg.autoscope && ctx.needs_scope && !ctx.scoped)
         {
@@ -322,8 +387,12 @@ namespace features::combat
 
         const systems::prediction::state& pre = systems::g_prediction.pre();
         const std::uint32_t flags = pre.valid ? pre.flags : local.flags;
-        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && ctx.ticks_to_fire <= autostop_ticks;
-        m_stop = cfg.autostop && (flags & cstypes::entity_flags::on_ground) != 0 && ready_soon;
+        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && (cfg.autostop_early || ctx.ticks_to_fire <= autostop_ticks);
+        const bool grounded = (flags & cstypes::entity_flags::on_ground) != 0;
+        const math::vector3 velocity = pre.valid ? pre.networked_velocity : local.velocity;
+        const math::vector3 origin = pre.valid ? pre.networked_origin : local.origin;
+        const bool air_ok = cfg.autostop_air || (cfg.autostop_landing && landing_soon(local.pawn, origin, velocity));
+        m_stop = cfg.autostop && ready_soon && (grounded || air_ok);
 
         if (pass)
         {
@@ -331,6 +400,8 @@ namespace features::combat
                 m_firing = systems::g_view.fire();
             else
                 m_firing = frame.held(cstypes::command_buttons::in_attack);
+            if (m_firing && best.tick > 0)
+                systems::g_view.set_render_tick(best.tick + 1);
         }
 
         if (!cfg.silent || m_firing)
@@ -342,6 +413,8 @@ namespace features::combat
             g_state.desired = desired;
             g_state.recoil = recoil;
         }
+        if (revolver && cfg.autofire && !m_firing)
+            cock_revolver(ctx);
         debug.fired = m_firing;
     }
 
@@ -374,5 +447,6 @@ namespace features::combat
         m_stop = false;
         debug = {};
         g_state = {};
+        backtrack::reset();
     }
 }

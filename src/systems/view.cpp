@@ -73,6 +73,8 @@ namespace systems
         m_request = {};
         m_fire = false;
         m_hold = false;
+        m_cock = false;
+        m_render_tick = 0;
         m_block_fire = false;
         m_applied_attack = false;
         m_fire_when = 0.f;
@@ -90,6 +92,7 @@ namespace systems
         if (m_request.active && priority <= m_request.priority)
             return false;
         m_request.angle = math::helpers::sanitized(angle);
+        m_request.angle.z = math::helpers::normalized_angle(angle.z);
         m_request.active = true;
         m_request.silent = silent;
         m_request.priority = priority;
@@ -122,7 +125,11 @@ namespace systems
         }
 
         if (!m_fire)
+        {
+            if (m_cock && !m_block_fire && !frame.held(attack))
+                frame.press(attack, 0.f);
             return;
+        }
 
         if (m_hold)
         {
@@ -163,7 +170,7 @@ namespace systems
             {
                 math::qangle angle = m_request.angle;
                 math::qangle from{};
-                if (m_request.silent && smooth_silent && count > 1 && cmd.history_angles(i, from) && from.is_valid())
+                if (m_request.silent && smooth_silent && m_request.angle.z == 0.f && count > 1 && cmd.history_angles(i, from) && from.is_valid())
                     angle = lerp_angle(from, m_request.angle, static_cast<float>(i + 1) / static_cast<float>(count));
                 cmd.set_history_angles(i, angle);
             }
@@ -181,7 +188,18 @@ namespace systems
             cmd.set_base_buttons(attack, 0);
             if (count > 0 && !m_hold)
                 cmd.set_attack1_index(count - 1);
+            if (m_render_tick > 0)
+            {
+                for (int i = 0; i < count; ++i)
+                    cmd.set_history_render_tick(i, m_render_tick);
+            }
             m_applied_attack = true;
+        }
+        else if (m_cock && !m_block_fire)
+        {
+            cmd.buttons() |= attack;
+            cmd.buttons_changed() |= attack;
+            cmd.set_base_buttons(attack, 0);
         }
         else if (m_last_fired && !g_user_attack)
         {
@@ -196,6 +214,8 @@ namespace systems
         m_request = {};
         m_fire = false;
         m_hold = false;
+        m_cock = false;
+        m_render_tick = 0;
         m_block_fire = false;
         m_applied_attack = false;
         m_fire_when = 0.f;

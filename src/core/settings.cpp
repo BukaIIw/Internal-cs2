@@ -682,6 +682,9 @@ void settings::register_all()
         add(group_key(prefix, "rage.autofire"), rage.autofire);
         add(group_key(prefix, "rage.autowall"), rage.autowall);
         add(group_key(prefix, "rage.autostop"), rage.autostop);
+        add(group_key(prefix, "rage.autostop_air"), rage.autostop_air);
+        add(group_key(prefix, "rage.autostop_early"), rage.autostop_early);
+        add(group_key(prefix, "rage.autostop_landing"), rage.autostop_landing);
         add(group_key(prefix, "rage.autoscope"), rage.autoscope);
         add(group_key(prefix, "rage.fov"), rage.fov);
         add(group_key(prefix, "rage.hitboxes"), rage.hitboxes);

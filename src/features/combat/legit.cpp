@@ -23,6 +23,7 @@ namespace
     constexpr float min_speed_drop = 0.97f;
     constexpr float max_jitter = 0.18f;
     constexpr int random_interval = 6;
+    constexpr float visible_scale = 0.5f;
 
     std::uint32_t g_rng = 0x9E3779B9u;
 
@@ -47,7 +48,12 @@ namespace
         if (!hitbox::collect(player.pawn, g_boxes))
             return false;
 
-        aim_box boxes[hitbox::max_boxes]{};
+        struct entry
+        {
+            float fov = 0.f;
+            int box = -1;
+        };
+        entry boxes[hitbox::max_boxes]{};
         int count = 0;
         for (int i = 0; i < g_boxes.count && count < hitbox::max_boxes; ++i)
         {
@@ -57,18 +63,29 @@ namespace
             const float fov = math::helpers::angle_fov(reference, math::helpers::calc_angle(eye, box.center));
             if (fov > cfg.fov)
                 continue;
-            boxes[count++] = { fov, box.center };
+            boxes[count++] = { fov, i };
         }
         if (count == 0)
             return false;
 
-        std::sort(boxes, boxes + count, [](const aim_box& a, const aim_box& b) { return a.fov < b.fov; });
+        std::sort(boxes, boxes + count, [](const entry& a, const entry& b) { return a.fov < b.fov; });
         for (int i = 0; i < count; ++i)
         {
-            if (cfg.visible_only && !systems::g_tracing.is_visible(local_pawn, player.pawn, eye, boxes[i].center))
-                continue;
-            out = boxes[i];
-            return true;
+            const hitbox::box& box = g_boxes.boxes[boxes[i].box];
+            if (!cfg.visible_only || systems::g_tracing.is_visible(local_pawn, player.pawn, eye, box.center))
+            {
+                out = { boxes[i].fov, box.center };
+                return true;
+            }
+            math::vector3 points[hitbox::max_points]{};
+            const int total = hitbox::points(box, eye, true, visible_scale, visible_scale, points, hitbox::max_points);
+            for (int p = 1; p < total; ++p)
+            {
+                if (!points[p].is_valid() || !systems::g_tracing.is_visible(local_pawn, player.pawn, eye, points[p]))
+                    continue;
+                out = { math::helpers::angle_fov(reference, math::helpers::calc_angle(eye, points[p])), points[p] };
+                return true;
+            }
         }
         return false;
     }
@@ -94,7 +111,8 @@ namespace features::combat
 
         const settings::combat::legit& cfg = settings::legit_for(ctx.group);
         const math::qangle recoil_now = detail::recoil(ctx);
-        const bool spraying = cfg.rcs && ctx.full_auto && ctx.shots_fired >= 1 && frame.really_held(cstypes::command_buttons::in_attack);
+        const bool rcs_weapon = ctx.full_auto && (ctx.group == settings::combat::wg_rifle || ctx.group == settings::combat::wg_smg || ctx.group == settings::combat::wg_machinegun);
+        const bool spraying = cfg.rcs && rcs_weapon && ctx.shots_fired >= 1 && frame.really_held(cstypes::command_buttons::in_attack);
         const math::qangle recoil_delta = spraying ? recoil_now - m_last_recoil : math::qangle{};
         m_last_recoil = recoil_now;
 

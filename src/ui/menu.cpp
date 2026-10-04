@@ -157,6 +157,9 @@ namespace
         ui::toggle("Autofire", &rage.autofire);
         ui::toggle("Autowall", &rage.autowall);
         ui::toggle("Autostop", &rage.autostop);
+        ui::toggle("Stop in air", &rage.autostop_air);
+        ui::toggle("Stop between shots", &rage.autostop_early);
+        ui::toggle("Stop before landing", &rage.autostop_landing);
         ui::toggle("Autoscope", &rage.autoscope);
         ui::toggle("No spread", &rage.nospread);
         ui::end_card();

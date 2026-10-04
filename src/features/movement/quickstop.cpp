@@ -28,7 +28,7 @@ namespace features::movement
             return;
 
         const auto& prestate = systems::g_prediction.pre();
-        if (!prestate.valid || !detail::on_ground(prestate))
+        if (!prestate.valid || (!forced && !detail::on_ground(prestate)))
             return;
 
         const auto local = systems::g_local.get();

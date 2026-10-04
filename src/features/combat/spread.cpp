@@ -11,8 +11,13 @@ namespace
 {
     constexpr int weapon_mode_secondary = 1;
     constexpr float negev_recoil_limit = 3.f;
-    constexpr int compensation_iterations = 4;
-    constexpr float max_offset = 1.f;
+    constexpr float max_offset = 0.5f;
+    constexpr float bucket_size = 0.5f;
+    constexpr float min_pitch_cos = 0.05f;
+    constexpr int max_bucket_range = 24;
+    constexpr int circle_steps = 96;
+    constexpr float cell_slack = 0.02f;
+    constexpr float min_alignment = 0.9999995f;
 
     class ran1
     {
@@ -134,52 +139,104 @@ namespace features::combat::spread
 
     bool available()
     {
-        return (PATTERN(patterns::get_tick_view_angles) || PATTERN(patterns::spread_seed)) && (PATTERN(patterns::weapon_calculate_spread) || PATTERN(patterns::calc_spread));
+        return PATTERN(patterns::spread_seed) && (PATTERN(patterns::calc_spread) || PATTERN(patterns::weapon_calculate_spread));
     }
 
     bool compensate(const weapon_context& ctx, const math::qangle& desired, const math::qangle& recoil, int tick, math::qangle& out)
     {
-        std::uintptr_t seed_function = PATTERN(patterns::get_tick_view_angles);
-        if (!seed_function)
-            seed_function = PATTERN(patterns::spread_seed);
-        std::uintptr_t calc_function = PATTERN(patterns::weapon_calculate_spread);
+        std::uintptr_t calc_function = PATTERN(patterns::calc_spread);
         if (!calc_function)
-            calc_function = PATTERN(patterns::calc_spread);
+            calc_function = PATTERN(patterns::weapon_calculate_spread);
+        const std::uintptr_t seed_function = PATTERN(patterns::spread_seed);
         if (!ctx.valid || !seed_function || !calc_function || tick <= 0 || !desired.is_valid() || !recoil.is_valid())
             return false;
 
         const math::qangle target = math::helpers::sanitized(desired);
-        math::vector3 forward{};
-        math::vector3 right{};
-        math::vector3 up{};
-        math::helpers::angle_vectors(target, forward, right, up);
+        math::vector3 dir{};
+        math::vector3 dir_right{};
+        math::vector3 dir_up{};
+        math::helpers::angle_vectors(target, dir, dir_right, dir_up);
+        const math::qangle base = math::helpers::sanitized(target - recoil);
+        const float max_theta = std::atan(std::min(ctx.inaccuracy + ctx.spread, max_offset));
+        const float pitch_cos = std::max(std::cos(math::deg2rad(base.x)), min_pitch_cos);
+        const int pitch_range = std::min(static_cast<int>(math::rad2deg(max_theta) / bucket_size) + 2, max_bucket_range);
+        const int yaw_range = std::min(static_cast<int>(math::rad2deg(max_theta) / (bucket_size * pitch_cos)) + 2, max_bucket_range);
+        const float base_pitch = std::round(base.x / bucket_size) * bucket_size;
+        const float base_yaw = std::round(base.y / bucket_size) * bucket_size;
         const int bullets = std::clamp(ctx.bullets, 1, max_bullets);
-        math::qangle current = math::helpers::sanitized(target - recoil);
 
-        for (int i = 0; i < compensation_iterations; ++i)
+        for (int ring = 0; ring <= std::max(pitch_range, yaw_range); ++ring)
         {
-            std::uint32_t seed = 0;
-            if (!call_seed(seed_function, current, tick, seed))
-                return false;
-            float x[max_bullets]{};
-            float y[max_bullets]{};
-            if (!call_calc_spread(calc_function, ctx.def, bullets, ctx.mode, seed + 1, ctx.inaccuracy, ctx.spread, ctx.recoil_index, x, y))
-                return false;
-            if (!std::isfinite(x[0]) || !std::isfinite(y[0]) || std::fabs(x[0]) > max_offset || std::fabs(y[0]) > max_offset)
-                return false;
-            const math::vector3 anti = (forward - right * x[0] - up * y[0]).normalized();
-            if (anti.is_zero())
-                return false;
-            const math::qangle next = math::helpers::sanitized(math::helpers::vector_angles(anti) - recoil);
-            std::uint32_t check = 0;
-            if (!call_seed(seed_function, next, tick, check))
-                return false;
-            if (check == seed)
+            for (int dp = -ring; dp <= ring; ++dp)
             {
-                out = next;
-                return true;
+                for (int dy = -ring; dy <= ring; ++dy)
+                {
+                    if (std::max(std::abs(dp), std::abs(dy)) != ring || std::abs(dp) > pitch_range || std::abs(dy) > yaw_range)
+                        continue;
+                    const math::qangle cell{ base_pitch + static_cast<float>(dp) * bucket_size, math::helpers::normalized_angle(base_yaw + static_cast<float>(dy) * bucket_size), 0.f };
+                    if (cell.x < -89.f || cell.x > 89.f)
+                        continue;
+                    std::uint32_t seed = 0;
+                    if (!call_seed(seed_function, cell, tick, seed))
+                        return false;
+                    float x[max_bullets]{};
+                    float y[max_bullets]{};
+                    if (!call_calc_spread(calc_function, ctx.def, bullets, ctx.mode, seed + 1, ctx.inaccuracy, ctx.spread, ctx.recoil_index, x, y))
+                        return false;
+                    const float magnitude = std::sqrt(x[0] * x[0] + y[0] * y[0]);
+                    if (!std::isfinite(magnitude) || magnitude > max_offset)
+                        continue;
+                    const float theta = std::atan(magnitude);
+
+                    const float cell_dp = (cell.x + recoil.x - target.x);
+                    const float cell_dy = math::helpers::normalized_angle(cell.y + recoil.y - target.y) * pitch_cos;
+                    const float half = bucket_size * 0.5f;
+                    const float near_p = std::max(0.f, std::fabs(cell_dp) - half);
+                    const float near_y = std::max(0.f, std::fabs(cell_dy) - half * pitch_cos);
+                    const float far_p = std::fabs(cell_dp) + half;
+                    const float far_y = std::fabs(cell_dy) + half * pitch_cos;
+                    const float theta_deg = math::rad2deg(theta);
+                    if (theta_deg < std::sqrt(near_p * near_p + near_y * near_y) - cell_slack || theta_deg > std::sqrt(far_p * far_p + far_y * far_y) + cell_slack)
+                        continue;
+
+                    for (int step = 0; step < circle_steps; ++step)
+                    {
+                        const float psi = static_cast<float>(step) * (2.f * math::pi / static_cast<float>(circle_steps));
+                        const float ap = -std::sin(psi) * theta_deg;
+                        const float ay = std::cos(psi) * theta_deg;
+                        if (std::fabs(ap - cell_dp) > half + cell_slack || std::fabs(-ay - cell_dy) > half * pitch_cos + cell_slack)
+                            continue;
+                        const math::vector3 forward = (dir * std::cos(theta) + (dir_up * std::sin(psi) + dir_right * std::cos(psi)) * std::sin(theta)).normalized();
+                        math::qangle shot = math::helpers::vector_angles(forward);
+                        math::qangle view{ shot.x - recoil.x, math::helpers::normalized_angle(shot.y - recoil.y), 0.f };
+                        if (view.x < -89.f || view.x > 89.f)
+                            continue;
+                        std::uint32_t check = 0;
+                        if (!call_seed(seed_function, view, tick, check))
+                            return false;
+                        if (check != seed)
+                            continue;
+
+                        math::vector3 f{};
+                        math::vector3 r{};
+                        math::vector3 u{};
+                        math::helpers::angle_vectors(shot, f, r, u);
+                        const float along = dir.dot(f);
+                        if (!(along > 0.f))
+                            continue;
+                        const math::vector3 need = dir / along - f;
+                        const float roll = math::rad2deg(std::atan2(y[0], x[0]) - std::atan2(need.dot(u), need.dot(r)));
+                        shot.z = math::helpers::normalized_angle(roll);
+                        math::helpers::angle_vectors(shot, f, r, u);
+                        const math::vector3 bullet = (f + r * x[0] + u * y[0]).normalized();
+                        if (bullet.dot(dir) < min_alignment)
+                            continue;
+                        view.z = shot.z;
+                        out = view;
+                        return true;
+                    }
+                }
             }
-            current = next;
         }
         return false;
     }
