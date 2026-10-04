@@ -28,12 +28,6 @@ namespace
         return last_fired && !features::combat::g_shared.ctx().full_auto && !revolver();
     }
 
-    bool event_angles_follow_aim()
-    {
-        const auto* cvar = CONVAR("sv_subtick_movement_view_angles");
-        return cvar->value != 0 && !cvar->get<bool>();
-    }
-
     systems::input::subtick_event* find_press(systems::input::frame& frame, float when)
     {
         const int count = frame.step_count();
@@ -147,7 +141,7 @@ namespace systems
 
         if (g_user_press && !m_hold)
         {
-            if (m_request.active && (!m_request.silent || event_angles_follow_aim()))
+            if (m_request.active)
             {
                 const int steps = frame.step_count();
                 for (int i = 0; i < steps; ++i)
@@ -177,10 +171,7 @@ namespace systems
         if (m_request.active)
         {
             if (input::subtick_event* press = find_press(frame, m_fire_when))
-            {
-                if (!m_request.silent || event_angles_follow_aim())
-                    write_event_angles(frame, *press, m_request.angle);
-            }
+                write_event_angles(frame, *press, m_request.angle);
         }
         m_applied_attack = true;
     }
@@ -196,7 +187,13 @@ namespace systems
         const bool late_aim = m_request.active && !m_request.silent && !g_frame_aimed;
         if (m_request.active && (m_request.silent || late_aim))
         {
-            for (int i = 0; i < count; ++i)
+            int first = 0;
+            if (m_fire && m_request.silent && !smooth_silent && !late_aim)
+            {
+                const int index = cmd.attack1_index();
+                first = index >= 0 && index < count ? index : std::max(0, count - 1);
+            }
+            for (int i = first; i < count; ++i)
             {
                 math::qangle angle = m_request.angle;
                 math::qangle from{};

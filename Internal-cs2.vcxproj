@@ -92,6 +92,7 @@
     <ClCompile Include="src\features\visuals\chams.cpp" />
     <ClCompile Include="src\features\visuals\esp.cpp" />
     <ClCompile Include="src\features\visuals\glow.cpp" />
+    <ClCompile Include="src\features\visuals\grenade.cpp" />
     <ClCompile Include="src\features\visuals\visuals.cpp" />
     <ClCompile Include="src\ui\catalog.cpp" />
     <ClCompile Include="src\ui\fonts.cpp" />

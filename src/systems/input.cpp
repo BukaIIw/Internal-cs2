@@ -444,8 +444,8 @@ namespace systems
                 if (!reads::readable(info, interp_size))
                     return;
                 memory::write<float>(info + interp_frac, 0.f);
-                memory::write<int>(info + interp_src_tick, -1);
-                memory::write<int>(info + interp_dst_tick, -1);
+                memory::write<int>(info + interp_src_tick, tick - 1);
+                memory::write<int>(info + interp_dst_tick, tick);
                 memory::ref<std::uint32_t>(info + pb_has_bits) |= interp_has_all;
             };
             clear_server(history_sv_interp0, history_has_sv_interp0);
@@ -499,8 +499,7 @@ namespace systems
             if (!valid_cmd(ptr) || index < -1)
                 return;
             memory::write<int>(ptr + cmd_attack1, index);
-            if (index >= 0)
-                memory::ref<std::uint32_t>(ptr + cmd_has_bits) |= cmd_has_attack1;
+            memory::ref<std::uint32_t>(ptr + cmd_has_bits) |= cmd_has_attack1;
         }
     }
 

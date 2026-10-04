@@ -151,6 +151,8 @@ namespace
         ui::feature("Double tap", &global.doubletap, &global.doubletap_key);
         static const char* const doubletap_modes[] = { "Instant", "Alternate", "Split" };
         ui::combo("Double tap mode", &global.doubletap_mode, doubletap_modes, static_cast<int>(std::size(doubletap_modes)));
+        static const char* const tick_sources[] = { "Client", "Server" };
+        ui::combo("Tick source", &global.tick_source, tick_sources, static_cast<int>(std::size(tick_sources)));
         ui::end_card();
 
         ui::begin_card("Hitboxes##rage", icon::Target);
@@ -264,6 +266,8 @@ namespace
         ui::toggle("Skeleton", &v.skeleton);
         ui::toggle("Snaplines", &v.snaplines);
         ui::toggle("Teammates##esp", &v.teammates);
+        ui::toggle("Grenade prediction", &v.grenade_prediction);
+        ui::color_edit("Grenade path", v.grenade_color.data());
         ui::end_card();
 
         ui::next_column();

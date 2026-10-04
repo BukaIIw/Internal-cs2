@@ -58,6 +58,7 @@ namespace features::combat
         void on_frame_stage(int stage);
         void on_create_move(systems::input::frame& frame);
         void on_create_move_post(systems::input::usercmd& cmd);
+        void on_create_move_late(systems::input::usercmd& cmd);
         bool is_firing_this_tick() const { return m_firing; }
         bool should_stop() const { return m_stop; }
         void reset();
@@ -75,6 +76,8 @@ namespace features::combat
         debug_info debug{};
 
     private:
+        void finish_shot(const math::qangle& view, int tick);
+
         bool m_firing = false;
         bool m_stop = false;
     };
@@ -84,10 +87,12 @@ namespace features::combat
     public:
         void on_create_move_post(systems::input::usercmd& cmd);
         void reset();
+        bool charged(const weapon_context& ctx) const;
 
     private:
         bool m_release = false;
         int m_shots = 0;
+        int m_second = 0;
     };
 
     class legit

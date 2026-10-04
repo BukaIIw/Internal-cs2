@@ -46,6 +46,7 @@ void features::register_all()
     events::subscribe(type::frame_stage, "changer", [](void* a) { changer::on_frame_stage(stage_of(a)); }, prio::normal);
     events::subscribe(type::frame_stage, "rage", [](void* a) { combat::g_rage.on_frame_stage(stage_of(a)); }, prio::normal);
     events::subscribe(type::frame_stage, "esp", [](void* a) { visuals::g_esp.on_frame_stage(stage_of(a)); }, prio::normal);
+    events::subscribe(type::frame_stage, "grenade prediction", [](void* a) { visuals::g_grenade.on_frame_stage(stage_of(a)); }, prio::normal);
     events::subscribe(type::frame_stage, "glow", [](void* a) { visuals::g_glow.on_frame_stage(stage_of(a)); }, prio::normal);
 
     events::subscribe(type::create_move, "view begin", [](void* a) {
@@ -69,6 +70,7 @@ void features::register_all()
     events::subscribe(type::create_move_post, "rage", [](void* a) { combat::g_rage.on_create_move_post(cmd_of(a)); }, prio::combat);
     events::subscribe(type::create_move_post, "view apply", [](void* a) { g_view.apply(cmd_of(a)); }, prio::view);
     events::subscribe(type::create_move_post, "doubletap", [](void* a) { combat::g_doubletap.on_create_move_post(cmd_of(a)); }, prio::view + 1);
+    events::subscribe(type::create_move_post, "rage late", [](void* a) { combat::g_rage.on_create_move_late(cmd_of(a)); }, prio::view + 2);
     events::subscribe(type::create_move_post, "view end", [](void*) { g_view.end(); }, prio::last);
 
     events::subscribe(type::override_view, "thirdperson", [](void* a) {
@@ -77,6 +79,7 @@ void features::register_all()
     }, prio::normal);
 
     events::subscribe(type::present, "esp", [](void*) { visuals::g_esp.on_present(ImGui::GetBackgroundDrawList()); }, prio::normal);
+    events::subscribe(type::present, "grenade prediction", [](void*) { visuals::g_grenade.on_present(ImGui::GetBackgroundDrawList()); }, prio::normal + 1);
     events::subscribe(type::present, "overlay", [](void*) { misc::g_overlay.on_present(ImGui::GetForegroundDrawList()); }, prio::normal + 1);
     events::subscribe(type::present, "menu", [](void*) { menu::render(); }, prio::last);
 

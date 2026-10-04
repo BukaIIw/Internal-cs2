@@ -28,9 +28,17 @@ namespace features::visuals
         bool on_draw_object(std::uintptr_t desc, std::uintptr_t meshes, int count) const;
     };
 
+    class grenade_prediction
+    {
+    public:
+        void on_frame_stage(int stage);
+        void on_present(ImDrawList* draw);
+    };
+
     bool any();
 
     inline esp g_esp{};
     inline glow g_glow{};
     inline chams g_chams{};
+    inline grenade_prediction g_grenade{};
 }

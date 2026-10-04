@@ -27,6 +27,8 @@ namespace
 
     constexpr int rage_priority = 2;
     constexpr int nospread_priority = 3;
+    constexpr int server_ticks = 1;
+    constexpr int server_shoot_window = 4;
     constexpr int scope_wait_ticks = 16;
     constexpr int autostop_ticks = 1;
     constexpr int backtrack_scans = 3;
@@ -35,10 +37,22 @@ namespace
     constexpr float damage_tolerance = 1.f;
     constexpr float percent = 100.f;
     constexpr int point_budget = 192;
-    constexpr int autowall_budget = 40;
+    constexpr int autowall_budget = 24;
+    constexpr int autowall_per_target = 8;
+    constexpr std::size_t primary_targets = 2;
     constexpr double scan_budget_ms = 2.5;
     constexpr float sort_center_height = 36.f;
     constexpr std::size_t player_slots = 65;
+    constexpr int confirm_ticks = 16;
+
+    struct unconfirmed
+    {
+        bool active = false;
+        int clip = 0;
+        int ticks = 0;
+        std::uintptr_t weapon = 0;
+        shots::fired shot{};
+    };
 
     struct candidate
     {
@@ -72,12 +86,14 @@ namespace
         math::qangle recoil{};
         math::qangle aim{};
         shots::fired shot{};
+        unconfirmed confirm{};
     };
 
     rage_state g_state{};
     hitbox::set g_scan_boxes{};
     hitbox::set g_best_boxes{};
     int g_autowall_calls = 0;
+    std::size_t g_rotation = 0;
     LONGLONG g_deadline = 0;
 
     LONGLONG now_ticks()
@@ -146,24 +162,20 @@ namespace
         return next.fov < best.fov;
     }
 
-    bool probe(const hitbox::set& boxes, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const hitbox::box& box, const math::vector3& point, bool autowall, candidate& out)
+    bool penetrate(const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const hitbox::box& box, const math::vector3& point, candidate& out)
     {
-        if (autowall)
-        {
-            if (probe(boxes, player, local_pawn, ctx, box, point, false, out))
-                return true;
-            if (g_autowall_calls >= autowall_budget)
-                return false;
-            ++g_autowall_calls;
-            const systems::tracing::bullet_result bullet = systems::g_tracing.fire_bullet(local_pawn, player.pawn, ctx.eye, point, true);
-            if (!bullet.ok || !bullet.hit_target || !(bullet.damage > 0.f))
-                return false;
-            out.damage = bullet.damage;
-            out.group = bullet.hitgroup >= 0 ? bullet.hitgroup : box.group;
-            out.penetrated = bullet.penetrations > 0;
-            return true;
-        }
+        ++g_autowall_calls;
+        const systems::tracing::bullet_result bullet = systems::g_tracing.fire_bullet(local_pawn, player.pawn, ctx.eye, point, true);
+        if (!bullet.ok || !bullet.hit_target || !(bullet.damage > 0.f))
+            return false;
+        out.damage = bullet.damage;
+        out.group = bullet.hitgroup >= 0 ? bullet.hitgroup : box.group;
+        out.penetrated = bullet.penetrations > 0;
+        return true;
+    }
 
+    bool probe(const hitbox::set& boxes, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const math::vector3& point, candidate& out)
+    {
         const math::vector3 direction = (point - ctx.eye).normalized();
         if (direction.is_zero())
             return false;
@@ -205,7 +217,7 @@ namespace
                     return best;
                 ++point_total;
                 candidate next{};
-                if (!probe(boxes, player, local_pawn, ctx, box, point, autowall, next) || next.damage < required)
+                if (!probe(boxes, player, local_pawn, ctx, point, next) || next.damage < required)
                     continue;
                 next.valid = true;
                 next.player = player;
@@ -218,6 +230,35 @@ namespace
                     best = next;
                 break;
             }
+        }
+        if (best.valid || !autowall)
+            return best;
+
+        int calls = 0;
+        for (int i = 0; i < boxes.count && calls < autowall_per_target && g_autowall_calls < autowall_budget; ++i)
+        {
+            const hitbox::box& box = boxes.boxes[i];
+            if ((box.bit & mask) == 0 || !box.center.is_valid())
+                continue;
+            const float fov = math::helpers::angle_fov(reference, math::helpers::calc_angle(ctx.eye, box.center));
+            if (fov > cfg.fov || ctx.eye.distance(box.center) > ctx.range)
+                continue;
+            if (now_ticks() > g_deadline)
+                break;
+            ++calls;
+            ++point_total;
+            candidate next{};
+            if (!penetrate(player, local_pawn, ctx, box, box.center, next) || next.damage < required)
+                continue;
+            next.valid = true;
+            next.player = player;
+            next.box = i;
+            next.point_index = 0;
+            next.body = is_body(next.group);
+            next.fov = fov;
+            next.point = box.center;
+            if (better_in_target(next, best, cfg.prefer_body))
+                best = next;
         }
         return best;
     }
@@ -253,6 +294,26 @@ namespace
     {
         return std::max(1, std::min(configured, health));
     }
+
+    void confirm_shot(const weapon_context& ctx)
+    {
+        unconfirmed& c = g_state.confirm;
+        if (!c.active)
+            return;
+        if (!ctx.valid || ctx.weapon != c.weapon)
+        {
+            c = {};
+            return;
+        }
+        if (ctx.clip < c.clip)
+        {
+            shots::on_fire(c.shot, ctx, systems::g_local.get().pawn);
+            c = {};
+            return;
+        }
+        if (++c.ticks > confirm_ticks)
+            c = {};
+    }
 }
 
 namespace features::combat
@@ -269,6 +330,7 @@ namespace features::combat
         debug = {};
         g_state.nospread = false;
         g_state.fired = false;
+        confirm_shot(g_shared.ctx());
         shots::update();
 
         if (g_state.scope_wait > 0)
@@ -315,11 +377,19 @@ namespace features::combat
             return a.fov < b.fov;
         });
 
+        std::array<std::size_t, primary_targets + 1> queue{};
+        std::size_t queued = 0;
+        for (std::size_t i = 0; i < order_count && i < primary_targets; ++i)
+            queue[queued++] = i;
+        if (order_count > primary_targets)
+            queue[queued++] = primary_targets + g_rotation++ % (order_count - primary_targets);
+
         candidate best{};
         int point_total = 0;
         start_budget();
-        for (std::size_t i = 0; i < order_count && !over_budget(point_total); ++i)
+        for (std::size_t q = 0; q < queued && !over_budget(point_total); ++q)
         {
+            const std::size_t i = queue[q];
             const systems::entities::player& player = players[order[i].slot];
             const float required = static_cast<float>(required_damage(configured, player.health));
             const std::uint32_t mask = target_mask(cfg, order[i].slot);
@@ -389,7 +459,7 @@ namespace features::combat
         const bool nospread = cfg.nospread && cfg.silent && spread::available();
         bool pass = false;
         math::vector3 point = best.point;
-        if (ctx.can_fire && !scoping)
+        if ((ctx.can_fire || g_doubletap.charged(ctx)) && !scoping)
         {
             if (cfg.hitchance <= 0 || nospread)
             {
@@ -478,7 +548,7 @@ namespace features::combat
 
     void rage::on_create_move_post(systems::input::usercmd& cmd)
     {
-        if (!g_state.fired)
+        if (!g_state.fired || settings::g_rage.tick_source == server_ticks)
             return;
         g_state.fired = false;
         const bool nospread = g_state.nospread;
@@ -504,11 +574,59 @@ namespace features::combat
             else
                 debug.nospread = 2;
         }
-        const systems::local_player::data local = systems::g_local.get();
+        finish_shot(view, tick);
+    }
+
+    void rage::on_create_move_late(systems::input::usercmd& cmd)
+    {
+        if (!g_state.fired || settings::g_rage.tick_source != server_ticks)
+            return;
+        g_state.fired = false;
+        const bool nospread = g_state.nospread;
+        g_state.nospread = false;
+        if (!cmd)
+            return;
+        const int count = cmd.history_size();
+        const int tick_base = g_shared.ctx().tick_base;
+        if (count <= 0 || tick_base <= 0)
+            return;
+        const int index = cmd.attack1_index();
+        const bool indexed = index >= 0 && index < count;
+        const int tick = indexed ? std::clamp(cmd.history_player_tick(index), tick_base - server_shoot_window, tick_base) : tick_base;
+        math::qangle view = g_state.aim;
+        if (nospread)
+        {
+            math::qangle angle{};
+            if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+            {
+                for (int i = indexed ? index : 0; i < count; ++i)
+                    cmd.set_history_angles(i, angle);
+                if (!indexed)
+                    cmd.set_base_angles(angle);
+                debug.nospread = 1;
+                view = angle;
+            }
+            else
+                debug.nospread = 2;
+        }
+        finish_shot(view, tick);
+    }
+
+    void rage::finish_shot(const math::qangle& view, int tick)
+    {
         g_state.shot.nospread = debug.nospread == 1;
         g_state.shot.view = view;
         g_state.shot.tick = tick;
-        shots::on_fire(g_state.shot, g_shared.ctx(), local.pawn);
+        const weapon_context& ctx = g_shared.ctx();
+        unconfirmed& c = g_state.confirm;
+        if (!c.active && ctx.valid && ctx.clip > 0)
+        {
+            c.active = true;
+            c.clip = ctx.clip;
+            c.ticks = 0;
+            c.weapon = ctx.weapon;
+            c.shot = g_state.shot;
+        }
     }
 
     void rage::reset()

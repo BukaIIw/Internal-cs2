@@ -1,17 +1,40 @@
 #include "movement.h"
 #include "movement_detail.h"
 #include "../combat/combat.h"
+#include "../../core/convar.h"
 #include "../../core/cstypes.h"
 #include "../../core/settings.h"
 #include "../../systems/local.h"
 #include "../../systems/prediction.h"
+#include <algorithm>
 #include <cmath>
 
 namespace
 {
     constexpr float min_stop_speed = 15.f;
     constexpr float min_forced_speed = 1.f;
-    constexpr float hard_stop_scale = 0.25f;
+    constexpr float default_friction = 5.2f;
+    constexpr float default_stop_speed = 80.f;
+    constexpr float default_accelerate = 5.5f;
+
+    float convar_or(const convars::convar* cvar, float fallback)
+    {
+        if (!cvar || !cvar->value)
+            return fallback;
+        const float value = cvar->get<float>();
+        return std::isfinite(value) && value > 0.f ? value : fallback;
+    }
+
+    float stop_fraction(float speed, float max_speed, float surface_friction)
+    {
+        const float friction = convar_or(CONVAR("sv_friction"), default_friction) * surface_friction;
+        const float control = std::max(speed, convar_or(CONVAR("sv_stopspeed"), default_stop_speed));
+        const float after = std::max(0.f, speed - control * friction * cstypes::tick_interval);
+        const float accel = convar_or(CONVAR("sv_accelerate"), default_accelerate) * max_speed * cstypes::tick_interval * surface_friction;
+        if (!(after > 0.f) || !(accel > 0.f))
+            return 0.f;
+        return std::clamp(after / accel, 0.f, 1.f);
+    }
 }
 
 namespace features::movement
@@ -54,7 +77,11 @@ namespace features::movement
 
         math::vector2 move{};
         if (speed > min_forced_speed)
-            move = detail::stop_move(frame.view().y, velocity, forced ? detail::weapon_max_speed() * hard_stop_scale : detail::weapon_max_speed());
+        {
+            const float max_speed = std::min(prestate.max_speed, detail::weapon_max_speed());
+            const float amount = stop_fraction(speed, max_speed, prestate.surface_friction);
+            move = detail::move_toward(detail::velocity_yaw(velocity) + 180.f, frame.view().y, amount);
+        }
 
         detail::set_constant_move(frame, move.x, move.y);
     }

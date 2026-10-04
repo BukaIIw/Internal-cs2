@@ -5,6 +5,6 @@ namespace features::visuals
 {
     bool any()
     {
-        return settings::g_visuals.esp || settings::g_visuals.fov_circle;
+        return settings::g_visuals.esp || settings::g_visuals.fov_circle || settings::g_visuals.grenade_prediction;
     }
 }

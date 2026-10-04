@@ -88,6 +88,7 @@ namespace settings
             bool doubletap = false;
             keys::bind doubletap_key{ 0, keys::mode::toggle };
             int doubletap_mode = 0;
+            int tick_source = 0;
         };
 
         struct legit
@@ -159,6 +160,8 @@ namespace settings
         color hands_color{ 1.f, 1.f, 1.f, 1.f };
         bool weapon_tint = false;
         color weapon_color{ 1.f, 1.f, 1.f, 1.f };
+        bool grenade_prediction = false;
+        color grenade_color{ 0.95f, 0.85f, 0.35f, 1.f };
     };
 
     struct misc

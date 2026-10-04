@@ -288,10 +288,11 @@ namespace features::combat::shots
             const systems::entities::player& player = players[static_cast<std::size_t>(slot)];
             if (player.pawn_handle != first->shot.player.pawn_handle)
             {
+                resolve_miss(*first, reason::target_died);
                 for (pending& p : g_pending)
                 {
                     if (p.active && p.shot.slot == slot)
-                        resolve_miss(p, reason::target_died);
+                        p.active = false;
                 }
                 continue;
             }
@@ -306,7 +307,7 @@ namespace features::combat::shots
                     for (pending& p : g_pending)
                     {
                         if (p.active && p.shot.slot == slot)
-                            resolve_miss(p, reason::target_died);
+                            p.active = false;
                     }
                 }
                 continue;

@@ -83,6 +83,12 @@ namespace
         out.index = index;
         out.tick_base = reads::field<int>(controller, SCHEMA("CBasePlayerController", "m_nTickBase"_hash));
         out.pawn_handle = reads::field<std::uint32_t>(controller, SCHEMA("CCSPlayerController", "m_hPlayerPawn"_hash), reads::invalid_handle);
+        if (reads::field<std::uint8_t>(controller, SCHEMA("CCSPlayerController", "m_bControllingBot"_hash)) != 0)
+        {
+            const std::uint32_t bot = reads::field<std::uint32_t>(controller, SCHEMA("CBasePlayerController", "m_hPawn"_hash), reads::invalid_handle);
+            if (g_entities.lookup(bot))
+                out.pawn_handle = bot;
+        }
         out.pawn = g_entities.lookup(out.pawn_handle);
         const std::uint32_t team_offset = SCHEMA("C_BaseEntity", "m_iTeamNum"_hash);
         out.team = reads::field<std::uint8_t>(out.pawn ? out.pawn : controller, team_offset);

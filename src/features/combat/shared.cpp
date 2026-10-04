@@ -37,6 +37,38 @@ namespace
     constexpr float leg_scale = 0.75f;
     constexpr float armor_bonus = 0.5f;
     constexpr float max_convar_scale = 10.f;
+    constexpr float max_eye_drift = 16.f;
+
+    struct shoot_timestamp
+    {
+        int tick;
+        float fraction;
+    };
+
+    bool call_shoot_position(std::uintptr_t function, std::uintptr_t pawn, const shoot_timestamp* stamp, math::vector3* out)
+    {
+        __try
+        {
+            memory::call<math::vector3*>(function, pawn, out, stamp);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    math::vector3 engine_eye(std::uintptr_t pawn, int tick, const math::vector3& fallback)
+    {
+        const std::uintptr_t function = PATTERN(patterns::get_interpolated_shoot_position);
+        if (!function || !pawn || tick <= 0 || !fallback.is_valid())
+            return fallback;
+        const shoot_timestamp stamp{ tick, 0.f };
+        math::vector3 out{ NAN, NAN, NAN };
+        if (!call_shoot_position(function, pawn, &stamp, &out) || !out.is_valid() || out.distance(fallback) > max_eye_drift)
+            return fallback;
+        return out;
+    }
 
     float sane_float(float value, float low, float high, float fallback)
     {
@@ -189,6 +221,7 @@ namespace features::combat
         const int tick_base = pre.valid && pre.tick_base > 0 ? pre.tick_base : local.tick_base;
         ctx.ticks_to_fire = std::max(0, next_attack - tick_base);
         ctx.tick_base = tick_base;
+        ctx.eye = engine_eye(local.pawn, tick_base, ctx.eye);
         if (ctx.def == cstypes::weapon_id::revolver)
         {
             ctx.revolver_ready_tick = reads::field<int>(weapon, SCHEMA("C_CSWeaponBase", "m_nPostponeFireReadyTicks"_hash));

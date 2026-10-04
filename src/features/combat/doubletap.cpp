@@ -21,6 +21,7 @@ namespace
     };
 
     constexpr std::uint64_t attack = cstypes::command_buttons::in_attack;
+    constexpr int charge_window = 16;
 
     struct weapon_ticks
     {
@@ -40,14 +41,17 @@ namespace
         return out;
     }
 
-    int alternate_tick(const weapon_ticks& t)
+    int shoot_tick(const weapon_ticks& t)
     {
         double whole = 0.0;
         const double frac = static_cast<double>(t.ratio) + std::modf(static_cast<double>(t.wat_offset), &whole);
         int tick = t.next_attack + static_cast<int>(whole);
-        if (frac >= 1.0)
-            ++tick;
-        else if (frac < 0.0)
+        if (frac >= 0.0)
+        {
+            if (frac >= 1.0)
+                ++tick;
+        }
+        else
             --tick;
         return tick;
     }
@@ -57,17 +61,29 @@ namespace
         for (int i = from; i < count; ++i)
             cmd.set_history_player_tick(i, tick, 0.f);
     }
+
+    bool active()
+    {
+        const settings::combat::rage& cfg = settings::g_rage;
+        return cfg.enabled && keys::active(cfg.doubletap, cfg.doubletap_key);
+    }
 }
 
 namespace features::combat
 {
+    bool doubletap::charged(const weapon_context& ctx) const
+    {
+        if (!active() || !ctx.valid || !ctx.gun || ctx.def == cstypes::weapon_id::revolver || ctx.clip <= 0 || ctx.reloading)
+            return false;
+        return m_second > 0;
+    }
+
     void doubletap::on_create_move_post(systems::input::usercmd& cmd)
     {
         const settings::combat::rage& cfg = settings::g_rage;
-        if (!cmd || !cfg.enabled || !keys::active(cfg.doubletap, cfg.doubletap_key))
+        if (!cmd || !active())
         {
-            m_release = false;
-            m_shots = 0;
+            reset();
             return;
         }
         const weapon_context& ctx = g_shared.ctx();
@@ -77,47 +93,52 @@ namespace features::combat
         const int count = cmd.history_size();
         if (count <= 0)
             return;
+        if (m_second > 0)
+            --m_second;
 
+        const bool firing = systems::g_view.firing();
         if (m_release)
         {
             m_release = false;
-            if (!systems::g_view.firing() && !systems::g_view.user_attack())
+            if (!firing && !systems::g_view.user_attack())
             {
                 cmd.buttons() &= ~attack;
                 cmd.buttons_changed() |= attack;
-                return;
             }
         }
-        if (!systems::g_view.firing())
-            return;
 
         const weapon_ticks ticks = read_ticks(local.weapon);
         if (ticks.next_attack <= 0)
             return;
 
-        switch (cfg.doubletap_mode)
-        {
-        case alternate:
+        if (cfg.doubletap_mode == alternate)
         {
             const bool shift = (m_shots % 2) != 0;
-            ++m_shots;
-            write_all(cmd, count, shift ? alternate_tick(ticks) - 1 : 0);
-            cmd.set_attack1_index(-1);
-            break;
-        }
-        case split:
-            if (count >= 2)
+            if (cmd.attack1_index() > -1)
             {
-                write_all(cmd, count, ticks.next_attack, 1);
-                cmd.set_attack1_index(0);
-                break;
+                ++m_shots;
+                m_second = (m_shots % 2) != 0 ? charge_window : 0;
+                m_release = true;
             }
-            [[fallthrough]];
-        default:
+            write_all(cmd, count, shift ? shoot_tick(ticks) - 1 : 0);
+            cmd.set_attack1_index(-1);
+            return;
+        }
+
+        if (!firing)
+            return;
+        const bool second = m_second > 0;
+        if (cfg.doubletap_mode == split && count >= 2)
+        {
+            write_all(cmd, count, ticks.next_attack, 1);
+            cmd.set_attack1_index(0);
+        }
+        else
+        {
             write_all(cmd, count, ticks.next_attack);
             cmd.set_attack1_index(-1);
-            break;
         }
+        m_second = second ? 0 : charge_window;
         m_release = true;
     }
 
@@ -125,5 +146,6 @@ namespace features::combat
     {
         m_release = false;
         m_shots = 0;
+        m_second = 0;
     }
 }
