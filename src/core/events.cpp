@@ -1,38 +1,61 @@
 #include "events.h"
 #include "log.h"
 #include <Windows.h>
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <atomic>
+#include <memory>
+#include <mutex>
 
 namespace
 {
-    struct Subscriber
+    struct subscriber
     {
-        const char* name;
-        events::Handler handler;
-        bool faulted;
-        uint64_t calls;
-        uint64_t ticks;
-        uint64_t peak;
+        const char* name = nullptr;
+        events::handler fn = nullptr;
+        int priority = 0;
+        std::atomic<bool> faulted{ false };
+        std::atomic<std::uint64_t> calls{ 0 };
+        std::atomic<std::uint64_t> ticks{ 0 };
+        std::atomic<std::uint64_t> peak{ 0 };
     };
 
-    constexpr int kMax = 16;
-    Subscriber table[events::Count][kMax]{};
-    int counts[events::Count]{};
+    constexpr int type_count = static_cast<int>(events::type::count);
 
-    double Frequency()
+    using subscriber_list = std::vector<std::unique_ptr<subscriber>>;
+
+    std::array<subscriber_list, type_count> g_lists{};
+    std::mutex g_mutex;
+
+    constexpr const char* g_names[type_count] = {
+        "FrameStage",
+        "CreateMove",
+        "CreateMovePost",
+        "OverrideView",
+        "Present",
+        "LevelInit",
+        "LevelShutdown",
+        "LocalPawnChanged",
+        "MenuToggle",
+        "Unload"
+    };
+
+    double microseconds_per_tick()
     {
-        static double us = [] {
-            LARGE_INTEGER f{};
-            QueryPerformanceFrequency(&f);
-            return 1000000.0 / static_cast<double>(f.QuadPart);
+        static const double value = [] {
+            LARGE_INTEGER frequency{};
+            QueryPerformanceFrequency(&frequency);
+            return frequency.QuadPart > 0 ? 1000000.0 / static_cast<double>(frequency.QuadPart) : 0.0;
         }();
-        return us;
+        return value;
     }
 
-    bool Invoke(events::Handler handler, int arg, void* data)
+    bool invoke(events::handler fn, void* args)
     {
         __try
         {
-            handler(arg, data);
+            fn(args);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -40,78 +63,126 @@ namespace
             return false;
         }
     }
-}
 
-void events::Subscribe(Type type, const char* name, Handler handler)
-{
-    if (type < 0 || type >= Count || counts[type] >= kMax)
-        return;
-    for (int i = 0; i < counts[type]; ++i)
-        if (table[type][i].handler == handler)
-            return;
-    table[type][counts[type]++] = { name, handler, false, 0, 0, 0 };
-}
-
-void events::Publish(Type type, int arg, void* data)
-{
-    if (type < 0 || type >= Count)
-        return;
-    for (int i = 0; i < counts[type]; ++i)
+    bool valid_type(int t)
     {
-        Subscriber& s = table[type][i];
-        if (s.faulted)
+        return t >= 0 && t < type_count;
+    }
+}
+
+void events::subscribe(type t, const char* name, handler h, int priority)
+{
+    const int index = static_cast<int>(t);
+    if (!valid_type(index) || !h)
+        return;
+
+    std::lock_guard lock(g_mutex);
+    auto& list = g_lists[index];
+    const char* label = name ? name : "?";
+    for (const auto& s : list)
+        if (s->fn == h && !std::strcmp(s->name, label))
+            return;
+
+    auto entry = std::make_unique<subscriber>();
+    entry->name = label;
+    entry->fn = h;
+    entry->priority = priority;
+
+    const auto position = std::upper_bound(list.begin(), list.end(), priority, [](int p, const std::unique_ptr<subscriber>& s) { return p < s->priority; });
+    list.insert(position, std::move(entry));
+}
+
+void events::publish(type t, void* args)
+{
+    const int index = static_cast<int>(t);
+    if (!valid_type(index))
+        return;
+
+    for (const auto& s : g_lists[index])
+    {
+        if (s->faulted.load(std::memory_order_relaxed))
             continue;
-        LARGE_INTEGER a{}, b{};
-        QueryPerformanceCounter(&a);
-        const bool ok = Invoke(s.handler, arg, data);
-        QueryPerformanceCounter(&b);
-        const uint64_t dt = static_cast<uint64_t>(b.QuadPart - a.QuadPart);
-        ++s.calls;
-        s.ticks += dt;
-        if (dt > s.peak)
-            s.peak = dt;
+
+        LARGE_INTEGER start{}, end{};
+        QueryPerformanceCounter(&start);
+        const bool ok = invoke(s->fn, args);
+        QueryPerformanceCounter(&end);
+
+        const auto elapsed = static_cast<std::uint64_t>(end.QuadPart > start.QuadPart ? end.QuadPart - start.QuadPart : 0);
+        s->calls.fetch_add(1, std::memory_order_relaxed);
+        s->ticks.fetch_add(elapsed, std::memory_order_relaxed);
+        auto peak = s->peak.load(std::memory_order_relaxed);
+        while (elapsed > peak && !s->peak.compare_exchange_weak(peak, elapsed, std::memory_order_relaxed))
+        {
+        }
+
         if (!ok)
         {
-            s.faulted = true;
-            logs::Add(logs::Error, "%s stopped after an exception in %s", s.name, Name(type));
+            s->faulted.store(true, std::memory_order_relaxed);
+            logs::Add(logs::Error, "%s faulted in %s", s->name, name(index));
         }
     }
 }
 
-const char* events::Name(int type)
+const char* events::name(int t)
 {
-    static const char* kNames[] = { "FrameStage", "CreateMove", "Present", "Unload", "LevelInit", "LevelShutdown", "PawnChanged", "MenuToggle" };
-    return type >= 0 && type < Count ? kNames[type] : "?";
+    return valid_type(t) ? g_names[t] : "?";
 }
 
-std::vector<events::Info> events::Snapshot()
+std::vector<events::info> events::snapshot()
 {
-    std::vector<Info> out;
-    const double us = Frequency();
-    for (int t = 0; t < Count; ++t)
-        for (int i = 0; i < counts[t]; ++i)
+    std::vector<info> out;
+    const double scale = microseconds_per_tick();
+
+    std::lock_guard lock(g_mutex);
+    for (int t = 0; t < type_count; ++t)
+    {
+        const auto& list = g_lists[t];
+        for (int i = 0; i < static_cast<int>(list.size()); ++i)
         {
-            const Subscriber& s = table[t][i];
-            out.push_back({ t, i, s.name, s.calls, s.calls ? static_cast<double>(s.ticks) * us / static_cast<double>(s.calls) : 0.0, static_cast<double>(s.peak) * us, s.faulted });
+            const auto& s = list[i];
+            const auto calls = s->calls.load(std::memory_order_relaxed);
+            const auto ticks = s->ticks.load(std::memory_order_relaxed);
+            const auto peak = s->peak.load(std::memory_order_relaxed);
+            info entry{};
+            entry.type = t;
+            entry.index = i;
+            entry.name = s->name;
+            entry.priority = s->priority;
+            entry.calls = calls;
+            entry.avg_us = calls ? static_cast<double>(ticks) * scale / static_cast<double>(calls) : 0.0;
+            entry.max_us = static_cast<double>(peak) * scale;
+            entry.faulted = s->faulted.load(std::memory_order_relaxed);
+            out.push_back(entry);
         }
+    }
     return out;
 }
 
-void events::Enable(int type, int index)
+void events::enable(int t, int index)
 {
-    if (type < 0 || type >= Count || index < 0 || index >= counts[type])
+    if (!valid_type(t))
         return;
-    table[type][index].faulted = false;
-    logs::Add(logs::Info, "%s re-enabled", table[type][index].name);
+
+    std::lock_guard lock(g_mutex);
+    auto& list = g_lists[t];
+    if (index < 0 || index >= static_cast<int>(list.size()))
+        return;
+
+    auto& s = list[index];
+    if (!s->faulted.exchange(false, std::memory_order_relaxed))
+        return;
+    logs::Add(logs::Info, "%s re-enabled in %s", s->name, name(t));
 }
 
-void events::ResetStats()
+void events::reset_stats()
 {
-    for (int t = 0; t < Count; ++t)
-        for (int i = 0; i < counts[t]; ++i)
+    std::lock_guard lock(g_mutex);
+    for (auto& list : g_lists)
+        for (auto& s : list)
         {
-            table[t][i].calls = 0;
-            table[t][i].ticks = 0;
-            table[t][i].peak = 0;
+            s->calls.store(0, std::memory_order_relaxed);
+            s->ticks.store(0, std::memory_order_relaxed);
+            s->peak.store(0, std::memory_order_relaxed);
         }
 }

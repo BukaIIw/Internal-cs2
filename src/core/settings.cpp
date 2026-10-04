@@ -1,153 +1,688 @@
 #include "settings.h"
 #include "log.h"
-#include "../misc.h"
 #include <Windows.h>
+#include <algorithm>
+#include <charconv>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace
 {
-    enum Kind
+    enum class kind
     {
-        KBool,
-        KInt,
-        KFloat,
-        KColor,
-        KKey
+        boolean,
+        integer,
+        bits,
+        real,
+        colour,
+        binding
     };
 
-    struct Var
+    struct variable
     {
-        const char* name;
-        Kind kind;
+        const char* key;
+        kind type;
         void* ptr;
     };
 
-    std::vector<Var>& Vars()
-    {
-        static std::vector<Var> vars;
-        return vars;
-    }
+    constexpr int sticker_slots = 5;
+    constexpr int max_bind_mode = static_cast<int>(keys::mode::off);
+    constexpr std::size_t max_file_size = 4u << 20;
 
-    void Add(const char* name, Kind kind, void* ptr)
+    std::vector<variable> g_variables;
+    std::mutex g_registry_mutex;
+    std::mutex g_io_mutex;
+
+    void add(const char* key, kind type, void* ptr)
     {
-        for (auto& v : Vars())
-            if (!strcmp(v.name, name))
+        for (auto& v : g_variables)
+            if (!std::strcmp(v.key, key))
             {
+                v.type = type;
                 v.ptr = ptr;
-                v.kind = kind;
                 return;
             }
-        Vars().push_back({ name, kind, ptr });
+        g_variables.push_back({ key, type, ptr });
     }
 
-    std::string& PathString()
+    void add(const char* key, bool& value) { add(key, kind::boolean, &value); }
+    void add(const char* key, int& value) { add(key, kind::integer, &value); }
+    void add(const char* key, std::uint32_t& value) { add(key, kind::bits, &value); }
+    void add(const char* key, float& value) { add(key, kind::real, &value); }
+    void add(const char* key, settings::color& value) { add(key, kind::colour, &value); }
+
+    void add(const char* key, keys::bind& value, const char* display)
     {
-        static std::string path;
-        if (path.empty())
-        {
-            char buf[MAX_PATH]{};
-            GetEnvironmentVariableA("APPDATA", buf, MAX_PATH);
-            std::string dir = std::string(buf) + "\\Internal-cs2";
-            CreateDirectoryA(dir.c_str(), nullptr);
-            path = dir + "\\settings.ini";
-        }
-        return path;
+        add(key, kind::binding, &value);
+        if (display)
+            keys::register_bind(&value, display);
     }
-}
 
-void settings::Bool(const char* name, bool* value) { Add(name, KBool, value); }
-void settings::Int(const char* name, int* value) { Add(name, KInt, value); }
-void settings::Float(const char* name, float* value) { Add(name, KFloat, value); }
-void settings::Color(const char* name, float* rgba) { Add(name, KColor, rgba); }
-void settings::Key(const char* name, misc::Bind* bind) { Add(name, KKey, bind); }
-
-const char* settings::Path()
-{
-    return PathString().c_str();
-}
-
-bool settings::Save()
-{
-    FILE* f = nullptr;
-    if (fopen_s(&f, Path(), "wb") || !f)
+    std::wstring directory()
     {
-        logs::Add(logs::Error, "Config: cannot write %s", Path());
-        return false;
+        static const std::wstring value = [] {
+            wchar_t buffer[MAX_PATH]{};
+            const DWORD length = GetEnvironmentVariableW(L"APPDATA", buffer, MAX_PATH);
+            std::wstring dir = length > 0 && length < MAX_PATH ? std::wstring(buffer, length) : std::wstring(L".");
+            dir += L"\\Internal-cs2";
+            CreateDirectoryW(dir.c_str(), nullptr);
+            return dir;
+        }();
+        return value;
     }
-    for (auto& v : Vars())
-    {
-        switch (v.kind)
-        {
-        case KBool: fprintf(f, "%s=%d\n", v.name, *static_cast<bool*>(v.ptr) ? 1 : 0); break;
-        case KInt: fprintf(f, "%s=%d\n", v.name, *static_cast<int*>(v.ptr)); break;
-        case KFloat: fprintf(f, "%s=%.4f\n", v.name, *static_cast<float*>(v.ptr)); break;
-        case KColor:
-        {
-            const float* c = static_cast<float*>(v.ptr);
-            fprintf(f, "%s=%.4f,%.4f,%.4f,%.4f\n", v.name, c[0], c[1], c[2], c[3]);
-            break;
-        }
-        case KKey:
-        {
-            auto b = static_cast<misc::Bind*>(v.ptr);
-            fprintf(f, "%s=%d,%d\n", v.name, b->key, b->mode);
-            break;
-        }
-        }
-    }
-    fclose(f);
-    logs::Add(logs::Success, "Config saved");
-    return true;
-}
 
-bool settings::Load()
-{
-    FILE* f = nullptr;
-    if (fopen_s(&f, Path(), "rb") || !f)
-        return false;
-    char line[256];
-    while (fgets(line, sizeof(line), f))
+    std::wstring settings_file()
     {
-        char* eq = strchr(line, '=');
-        if (!eq)
-            continue;
-        *eq = 0;
-        const char* value = eq + 1;
-        for (auto& v : Vars())
+        return directory() + L"\\settings.ini";
+    }
+
+    std::wstring inventory_file()
+    {
+        return directory() + L"\\inventory.ini";
+    }
+
+    std::string narrow(const std::wstring& text)
+    {
+        if (text.empty())
+            return {};
+        const int size = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        if (size <= 0)
+            return {};
+        std::string out(static_cast<std::size_t>(size), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), out.data(), size, nullptr, nullptr);
+        return out;
+    }
+
+    bool write_atomic(const std::wstring& path, const std::string& content)
+    {
+        const std::wstring temporary = path + L".tmp";
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, temporary.c_str(), L"wb") || !file)
+            return false;
+        const bool written = std::fwrite(content.data(), 1, content.size(), file) == content.size() && std::fflush(file) == 0;
+        const bool closed = std::fclose(file) == 0;
+        if (!written || !closed)
         {
-            if (strcmp(v.name, line))
-                continue;
-            switch (v.kind)
-            {
-            case KBool: *static_cast<bool*>(v.ptr) = atoi(value) != 0; break;
-            case KInt: *static_cast<int*>(v.ptr) = atoi(value); break;
-            case KFloat: *static_cast<float*>(v.ptr) = static_cast<float>(atof(value)); break;
-            case KColor:
-            {
-                float* c = static_cast<float*>(v.ptr);
-                sscanf_s(value, "%f,%f,%f,%f", &c[0], &c[1], &c[2], &c[3]);
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
+        if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        {
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    bool read_file(const std::wstring& path, std::string& out)
+    {
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, path.c_str(), L"rb") || !file)
+            return false;
+        out.clear();
+        char buffer[4096];
+        std::size_t read = 0;
+        while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0)
+        {
+            out.append(buffer, read);
+            if (out.size() > max_file_size)
                 break;
-            }
-            case KKey:
+        }
+        std::fclose(file);
+        return out.size() <= max_file_size;
+    }
+
+    std::string_view trim(std::string_view s)
+    {
+        while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'))
+            s.remove_prefix(1);
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r'))
+            s.remove_suffix(1);
+        return s;
+    }
+
+    template <typename F>
+    void for_each_line(std::string_view text, F&& fn)
+    {
+        while (!text.empty())
+        {
+            const auto end = text.find('\n');
+            const auto line = end == std::string_view::npos ? text : text.substr(0, end);
+            fn(line);
+            if (end == std::string_view::npos)
+                break;
+            text.remove_prefix(end + 1);
+        }
+    }
+
+    bool parse(std::string_view s, int& out)
+    {
+        s = trim(s);
+        int value = 0;
+        const auto r = std::from_chars(s.data(), s.data() + s.size(), value);
+        if (r.ec != std::errc{} || r.ptr != s.data() + s.size())
+            return false;
+        out = value;
+        return true;
+    }
+
+    bool parse(std::string_view s, std::uint32_t& out)
+    {
+        s = trim(s);
+        std::uint32_t value = 0;
+        const auto r = std::from_chars(s.data(), s.data() + s.size(), value);
+        if (r.ec != std::errc{} || r.ptr != s.data() + s.size())
+            return false;
+        out = value;
+        return true;
+    }
+
+    bool parse(std::string_view s, float& out)
+    {
+        s = trim(s);
+        float value = 0.f;
+        const auto r = std::from_chars(s.data(), s.data() + s.size(), value);
+        if (r.ec != std::errc{} || r.ptr != s.data() + s.size() || !std::isfinite(value))
+            return false;
+        out = value;
+        return true;
+    }
+
+    std::vector<std::string_view> split(std::string_view s, char separator)
+    {
+        std::vector<std::string_view> parts;
+        while (true)
+        {
+            const auto at = s.find(separator);
+            parts.push_back(s.substr(0, at));
+            if (at == std::string_view::npos)
+                break;
+            s.remove_prefix(at + 1);
+        }
+        return parts;
+    }
+
+    std::string_view next_token(std::string_view& s)
+    {
+        while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+            s.remove_prefix(1);
+        const auto end = s.find_first_of(" \t");
+        const auto token = s.substr(0, end);
+        s.remove_prefix(end == std::string_view::npos ? s.size() : end);
+        return token;
+    }
+
+    void append(std::string& out, int value)
+    {
+        char buffer[16];
+        const auto r = std::to_chars(buffer, buffer + sizeof(buffer), value);
+        out.append(buffer, r.ptr);
+    }
+
+    void append(std::string& out, std::uint32_t value)
+    {
+        char buffer[16];
+        const auto r = std::to_chars(buffer, buffer + sizeof(buffer), value);
+        out.append(buffer, r.ptr);
+    }
+
+    void append(std::string& out, float value)
+    {
+        if (!std::isfinite(value))
+            value = 0.f;
+        char buffer[32];
+        const auto r = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general, 7);
+        out.append(buffer, r.ptr);
+    }
+
+    std::string serialize_settings()
+    {
+        std::string out;
+        std::lock_guard lock(g_registry_mutex);
+        for (const auto& v : g_variables)
+        {
+            out += v.key;
+            out += '=';
+            switch (v.type)
             {
-                auto b = static_cast<misc::Bind*>(v.ptr);
-                int key = 0, mode = 0;
-                if (sscanf_s(value, "%d,%d", &key, &mode) == 2)
+            case kind::boolean:
+                out += *static_cast<const bool*>(v.ptr) ? '1' : '0';
+                break;
+            case kind::integer:
+                append(out, *static_cast<const int*>(v.ptr));
+                break;
+            case kind::bits:
+                append(out, *static_cast<const std::uint32_t*>(v.ptr));
+                break;
+            case kind::real:
+                append(out, *static_cast<const float*>(v.ptr));
+                break;
+            case kind::colour:
+            {
+                const auto* c = static_cast<const settings::color*>(v.ptr)->data();
+                for (int i = 0; i < 4; ++i)
                 {
-                    b->key = key;
-                    b->mode = mode < 0 || mode > 2 ? 0 : mode;
-                    b->toggled = false;
+                    if (i)
+                        out += ',';
+                    append(out, c[i]);
                 }
                 break;
             }
+            case kind::binding:
+            {
+                const auto* b = static_cast<const keys::bind*>(v.ptr);
+                append(out, b->key);
+                out += ',';
+                append(out, static_cast<int>(b->type));
+                break;
             }
+            }
+            out += '\n';
+        }
+        return out;
+    }
+
+    void apply_setting(const variable& v, std::string_view value)
+    {
+        switch (v.type)
+        {
+        case kind::boolean:
+        {
+            int parsed = 0;
+            if (parse(value, parsed))
+                *static_cast<bool*>(v.ptr) = parsed != 0;
             break;
         }
+        case kind::integer:
+            parse(value, *static_cast<int*>(v.ptr));
+            break;
+        case kind::bits:
+            parse(value, *static_cast<std::uint32_t*>(v.ptr));
+            break;
+        case kind::real:
+            parse(value, *static_cast<float*>(v.ptr));
+            break;
+        case kind::colour:
+        {
+            const auto parts = split(value, ',');
+            if (parts.size() != 4)
+                break;
+            float c[4]{};
+            for (int i = 0; i < 4; ++i)
+                if (!parse(parts[i], c[i]))
+                    return;
+            auto* target = static_cast<settings::color*>(v.ptr)->data();
+            for (int i = 0; i < 4; ++i)
+                target[i] = std::clamp(c[i], 0.f, 1.f);
+            break;
+        }
+        case kind::binding:
+        {
+            const auto parts = split(value, ',');
+            int key = 0, mode = 0;
+            if (parts.size() != 2 || !parse(parts[0], key) || !parse(parts[1], mode))
+                break;
+            auto* b = static_cast<keys::bind*>(v.ptr);
+            b->key = key > 0 && key < 256 ? key : 0;
+            b->type = static_cast<keys::mode>(std::clamp(mode, 0, max_bind_mode));
+            b->toggled = false;
+            break;
+        }
+        }
     }
-    fclose(f);
-    logs::Add(logs::Info, "Config loaded");
-    return true;
+
+    void deserialize_settings(std::string_view text)
+    {
+        std::lock_guard lock(g_registry_mutex);
+        for_each_line(text, [](std::string_view line) {
+            const auto eq = line.find('=');
+            if (eq == std::string_view::npos)
+                return;
+            const auto key = trim(line.substr(0, eq));
+            const auto value = trim(line.substr(eq + 1));
+            for (const auto& v : g_variables)
+                if (key == v.key)
+                {
+                    apply_setting(v, value);
+                    return;
+                }
+        });
+    }
+
+    std::string sanitize_nametag(const std::string& text)
+    {
+        std::string out = text;
+        for (auto& c : out)
+            if (c == '|' || c == '\n' || c == '\r' || c == '\t')
+                c = ' ';
+        const auto view = trim(out);
+        return std::string(view);
+    }
+
+    std::string serialize_inventory()
+    {
+        std::lock_guard lock(settings::g_changer_mutex);
+        const auto& changer = settings::g_changer;
+        std::string out = "agents ";
+        append(out, static_cast<int>(changer.agents.ct_def));
+        out += ' ';
+        append(out, static_cast<int>(changer.agents.t_def));
+        out += '\n';
+        for (const auto& e : changer.inventory)
+        {
+            append(out, e.uid);
+            out += ' ';
+            append(out, static_cast<int>(e.def_index));
+            out += ' ';
+            append(out, e.skin.paint_kit_id);
+            out += ' ';
+            append(out, e.skin.seed);
+            out += ' ';
+            append(out, e.skin.wear);
+            out += ' ';
+            append(out, e.skin.stattrak);
+            out += ' ';
+            out += e.equipped_t ? '1' : '0';
+            out += ' ';
+            out += e.equipped_ct ? '1' : '0';
+            out += ' ';
+            out += sanitize_nametag(e.skin.nametag);
+            out += '|';
+            for (int i = 0; i < sticker_slots; ++i)
+            {
+                if (i)
+                    out += ' ';
+                append(out, e.skin.stickers[i]);
+            }
+            out += '\n';
+        }
+        return out;
+    }
+
+    bool parse_def(std::string_view s, std::int16_t& out)
+    {
+        int value = 0;
+        if (!parse(s, value) || value < 0 || value > 32767)
+            return false;
+        out = static_cast<std::int16_t>(value);
+        return true;
+    }
+
+    bool parse_entry(std::string_view line, settings::changer::inventory_entry& e)
+    {
+        const auto bar = line.rfind('|');
+        if (bar == std::string_view::npos)
+            return false;
+
+        auto head = line.substr(0, bar);
+        auto tail = line.substr(bar + 1);
+
+        int equipped_t = 0, equipped_ct = 0;
+        if (!parse(next_token(head), e.uid) || !parse_def(next_token(head), e.def_index) ||
+            !parse(next_token(head), e.skin.paint_kit_id) || !parse(next_token(head), e.skin.seed) ||
+            !parse(next_token(head), e.skin.wear) || !parse(next_token(head), e.skin.stattrak) ||
+            !parse(next_token(head), equipped_t) || !parse(next_token(head), equipped_ct))
+            return false;
+
+        if (e.def_index <= 0 || e.uid <= 0)
+            return false;
+
+        e.skin.paint_kit_id = std::max(e.skin.paint_kit_id, 0);
+        e.skin.seed = std::max(e.skin.seed, 0);
+        e.skin.wear = std::clamp(e.skin.wear, 0.f, 1.f);
+        e.skin.stattrak = std::max(e.skin.stattrak, -1);
+        e.equipped_t = equipped_t != 0;
+        e.equipped_ct = equipped_ct != 0;
+        e.skin.nametag = std::string(trim(head));
+
+        for (int i = 0; i < sticker_slots; ++i)
+        {
+            int sticker = 0;
+            if (!parse(next_token(tail), sticker))
+                return false;
+            e.skin.stickers[i] = std::max(sticker, 0);
+        }
+        return true;
+    }
+
+    void deserialize_inventory(std::string_view text)
+    {
+        std::vector<settings::changer::inventory_entry> inventory;
+        settings::changer::agents agents{};
+        int next_uid = 1;
+
+        for_each_line(text, [&](std::string_view line) {
+            line = trim(line);
+            if (line.empty())
+                return;
+            if (line.substr(0, 7) == "agents ")
+            {
+                auto rest = line.substr(7);
+                std::int16_t ct = 0, t = 0;
+                if (parse_def(next_token(rest), ct) && parse_def(next_token(rest), t))
+                {
+                    agents.ct_def = ct;
+                    agents.t_def = t;
+                }
+                return;
+            }
+            settings::changer::inventory_entry e{};
+            if (!parse_entry(line, e))
+                return;
+            for (const auto& existing : inventory)
+                if (existing.uid == e.uid)
+                    return;
+            next_uid = std::max(next_uid, e.uid + 1);
+            inventory.push_back(std::move(e));
+        });
+
+        std::lock_guard lock(settings::g_changer_mutex);
+        settings::g_changer.inventory = std::move(inventory);
+        settings::g_changer.agents = agents;
+        settings::g_changer.next_uid = std::max(settings::g_changer.next_uid, next_uid);
+    }
+
+    bool is_knife(std::int16_t def)
+    {
+        return def >= 500 && def < 600;
+    }
+
+    bool is_glove(std::int16_t def)
+    {
+        return def == 4725 || (def >= 5027 && def <= 5035);
+    }
+
+    bool equipped_for(const settings::changer::inventory_entry& e, int team)
+    {
+        if (team == 2)
+            return e.equipped_t;
+        if (team == 3)
+            return e.equipped_ct;
+        return false;
+    }
+}
+
+std::uint32_t settings::color::abgr() const
+{
+    const auto channel = [](float v) {
+        if (!std::isfinite(v))
+            v = 0.f;
+        return static_cast<std::uint32_t>(std::clamp(v, 0.f, 1.f) * 255.f + 0.5f);
+    };
+    return channel(r) | (channel(g) << 8) | (channel(b) << 16) | (channel(a) << 24);
+}
+
+void settings::changer_settings::rebuild(int team)
+{
+    std::lock_guard lock(g_changer_mutex);
+    skins.data.clear();
+    for (const auto& e : inventory)
+        if (equipped_for(e, team))
+            skins.data[e.def_index] = e.skin;
+}
+
+const settings::changer::applied_skin* settings::changer_settings::find(std::int16_t def_index, int team) const
+{
+    const changer::applied_skin* fallback = nullptr;
+    for (const auto& e : inventory)
+    {
+        if (e.def_index != def_index)
+            continue;
+        if (equipped_for(e, team))
+            return &e.skin;
+        if (!fallback && (e.equipped_t || e.equipped_ct))
+            fallback = &e.skin;
+    }
+    return fallback;
+}
+
+std::int16_t settings::changer_settings::knife(int team) const
+{
+    for (const auto& e : inventory)
+        if (is_knife(e.def_index) && equipped_for(e, team))
+            return e.def_index;
+    return 0;
+}
+
+std::int16_t settings::changer_settings::glove(int team) const
+{
+    for (const auto& e : inventory)
+        if (is_glove(e.def_index) && equipped_for(e, team))
+            return e.def_index;
+    return 0;
+}
+
+void settings::register_all()
+{
+    std::lock_guard lock(g_registry_mutex);
+
+    add("rage.enabled", g_rage.enabled);
+    add("bind.rage", g_rage.key, "Ragebot");
+    add("rage.silent", g_rage.silent);
+    add("rage.silent_smooth", g_rage.silent_smooth);
+    add("rage.autofire", g_rage.autofire);
+    add("rage.autowall", g_rage.autowall);
+    add("rage.autostop", g_rage.autostop);
+    add("rage.autoscope", g_rage.autoscope);
+    add("rage.fov", g_rage.fov);
+    add("rage.hitboxes", g_rage.hitboxes);
+    add("rage.multipoint", g_rage.multipoint);
+    add("hitbox.head_scale", g_rage.head_scale);
+    add("hitbox.body_scale", g_rage.body_scale);
+    add("rage.hitchance", g_rage.hitchance);
+    add("rage.min_damage", g_rage.minimum_damage);
+    add("bind.damage_override", g_rage.damage_override_key, "Damage override");
+    add("rage.damage_override", g_rage.damage_override);
+    add("rage.force_shot", g_rage.force_shot);
+    add("rage.force_shot_iterations", g_rage.force_shot_iterations);
+    add("rage.force_shot_min_spread", g_rage.force_shot_min_spread);
+    add("hitbox.prefer_body", g_rage.prefer_body);
+    add("nospread.enabled", g_rage.nospread);
+    add("rage.teammates", g_rage.teammates);
+    add("rage.remove_recoil", g_rage.remove_recoil);
+
+    add("aim.legit", g_legit.enabled);
+    add("bind.legit", g_legit.key, "Legitbot");
+    add("aim.legit_fov", g_legit.fov);
+    add("aim.legit_smooth", g_legit.smooth);
+    add("legit.hitboxes", g_legit.hitboxes);
+    add("aim.legit_rcs", g_legit.rcs);
+    add("legit.rcs_scale", g_legit.rcs_scale);
+    add("legit.visible_only", g_legit.visible_only);
+    add("legit.teammates", g_legit.teammates);
+
+    add("aim.trigger", g_trigger.enabled);
+    add("bind.trigger", g_trigger.key, "Triggerbot");
+    add("aim.trigger_delay", g_trigger.delay);
+    add("trigger.hitboxes", g_trigger.hitboxes);
+    add("aim.trigger_min_damage", g_trigger.minimum_damage);
+    add("trigger.hitchance", g_trigger.hitchance);
+    add("trigger.teammates", g_trigger.teammates);
+
+    add("movement.bhop", g_movement.bhop);
+    add("bind.bhop", g_movement.bhop_key, "Bunnyhop");
+    add("movement.autostrafe", g_movement.airstrafe);
+    add("movement.airstrafe_fully_directional", g_movement.airstrafe_fully_directional);
+    add("movement.strafe_mode", g_movement.airstrafe_mode);
+    add("bind.strafe", g_movement.airstrafe_key, "Airstrafe");
+    add("movement.jumpbug", g_movement.jumpbug);
+    add("bind.jumpbug", g_movement.jumpbug_key, "Jumpbug");
+    add("movement.fastladder", g_movement.fastladder);
+    add("movement.quickstop", g_movement.quickstop);
+
+    add("visuals.esp", g_visuals.esp);
+    add("visuals.box", g_visuals.box);
+    add("visuals.name", g_visuals.name);
+    add("visuals.health", g_visuals.health);
+    add("visuals.weapon", g_visuals.weapon);
+    add("visuals.distance", g_visuals.distance);
+    add("visuals.skeleton", g_visuals.skeleton);
+    add("visuals.snaplines", g_visuals.snaplines);
+    add("visuals.teammates", g_visuals.teammates);
+    add("visuals.visible_color", g_visuals.visible);
+    add("visuals.hidden_color", g_visuals.hidden);
+    add("visuals.team_color", g_visuals.team);
+    add("visuals.glow", g_visuals.glow);
+    add("visuals.glow_team", g_visuals.glow_teammates);
+    add("visuals.glow_visibility", g_visuals.glow_by_visibility);
+    add("visuals.glow_color", g_visuals.glow_visible);
+    add("visuals.glow_hidden_color", g_visuals.glow_hidden);
+    add("visuals.glow_team_color", g_visuals.glow_team);
+    add("visuals.fov_circle", g_visuals.fov_circle);
+    add("hands.arms", g_visuals.hands_tint);
+    add("hands.arms_color", g_visuals.hands_color);
+    add("hands.weapon", g_visuals.weapon_tint);
+    add("hands.weapon_color", g_visuals.weapon_color);
+
+    add("camera.thirdperson", g_misc.thirdperson);
+    add("bind.thirdperson", g_misc.thirdperson_key, "Thirdperson");
+    add("camera.distance", g_misc.thirdperson_distance);
+    add("overlay.watermark", g_misc.watermark);
+    add("overlay.keybinds", g_misc.keybinds);
+
+    add("skins.enabled", g_changer.enabled);
+    add("skins.knife_animations", g_changer.knife_animations);
+    add("skins.language", g_changer.language);
+
+    add("ui.accent", g_ui.accent);
+    add("ui.reduce_motion", g_ui.reduce_motion);
+    add("ui.scale", g_ui.scale);
+    add("bind.menu", g_ui.menu_key, nullptr);
+}
+
+bool settings::save()
+{
+    std::lock_guard lock(g_io_mutex);
+    const bool settings_ok = write_atomic(settings_file(), serialize_settings());
+    const bool inventory_ok = write_atomic(inventory_file(), serialize_inventory());
+    if (!settings_ok)
+        logs::Add(logs::Error, "Config: cannot write %s", path());
+    if (!inventory_ok)
+        logs::Add(logs::Error, "Config: cannot write inventory.ini");
+    return settings_ok && inventory_ok;
+}
+
+bool settings::load()
+{
+    std::lock_guard lock(g_io_mutex);
+    std::string text;
+    const bool settings_ok = read_file(settings_file(), text);
+    if (settings_ok)
+        deserialize_settings(text);
+    if (read_file(inventory_file(), text))
+        deserialize_inventory(text);
+    if (settings_ok)
+        logs::Add(logs::Info, "Config loaded");
+    return settings_ok;
+}
+
+const char* settings::path()
+{
+    static const std::string value = narrow(settings_file());
+    return value.c_str();
 }

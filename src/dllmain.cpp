@@ -1,24 +1,48 @@
 #include <Windows.h>
-#include "hooks.h"
+#include "core/hooks.h"
+#include "core/keys.h"
+#include "core/runtime.h"
+#include "ui/menu.h"
 
-static DWORD WINAPI MainThread(LPVOID module)
+namespace
 {
-    while (!GetModuleHandleA("client.dll"))
-        Sleep(100);
+    constexpr DWORD module_poll_ms = 100;
+    constexpr DWORD unload_poll_ms = 50;
+    constexpr DWORD exit_delay_ms = 100;
 
-    if (!hooks::Init())
+    DWORD WINAPI main_thread(LPVOID parameter)
     {
-        FreeLibraryAndExitThread(static_cast<HMODULE>(module), 0);
+        const auto module = static_cast<HMODULE>(parameter);
+
+        while (!GetModuleHandleA("client.dll"))
+            Sleep(module_poll_ms);
+
+        if (!hooks::initialize())
+        {
+            hooks::shutdown();
+            if (hooks::can_free())
+                FreeLibraryAndExitThread(module, 0);
+            return 0;
+        }
+
+        bool end_was_down = true;
+        while (!hooks::unloading.load())
+        {
+            const bool end_down = keys::down(VK_END);
+            if (end_down && !end_was_down && !menu::open && !keys::capturing)
+                hooks::unloading.store(true);
+            end_was_down = end_down;
+            Sleep(unload_poll_ms);
+        }
+
+        hooks::shutdown();
+        if (!hooks::can_free())
+            return 0;
+
+        Sleep(exit_delay_ms);
+        FreeLibraryAndExitThread(module, 0);
         return 0;
     }
-
-    while (!hooks::unload)
-        Sleep(50);
-
-    hooks::Shutdown();
-    Sleep(200);
-    FreeLibraryAndExitThread(static_cast<HMODULE>(module), 0);
-    return 0;
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
@@ -26,8 +50,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(module);
-        if (HANDLE h = CreateThread(nullptr, 0, MainThread, module, 0, nullptr))
-            CloseHandle(h);
+        if (HANDLE thread = CreateThread(nullptr, 0, main_thread, module, 0, nullptr))
+            CloseHandle(thread);
     }
     return TRUE;
 }
