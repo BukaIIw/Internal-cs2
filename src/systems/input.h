@@ -102,6 +102,7 @@ namespace systems
             void set_history_angles(int index, const math::qangle& angles);
             int history_render_tick(int index) const;
             void set_history_render_tick(int index, int tick);
+            void set_history_player_tick(int index, int tick, float fraction);
             int history_player_tick(int index) const;
             float history_player_fraction(int index) const;
 

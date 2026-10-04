@@ -148,6 +148,9 @@ namespace
         ui::slider("Minimum damage##rage", &rage.minimum_damage, 1, 120, "%d hp");
         ui::slider("Damage override##rage", &rage.damage_override, 1, 120, "%d hp");
         ui::key_button("Override key", &global.damage_override_key);
+        ui::feature("Double tap", &global.doubletap, &global.doubletap_key);
+        static const char* const doubletap_modes[] = { "Instant", "Alternate", "Split" };
+        ui::combo("Double tap mode", &global.doubletap_mode, doubletap_modes, static_cast<int>(std::size(doubletap_modes)));
         ui::end_card();
 
         ui::begin_card("Hitboxes##rage", icon::Target);

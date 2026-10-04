@@ -67,6 +67,7 @@ namespace
     constexpr std::uintptr_t history_player_tick_count = 0x68;
     constexpr std::uintptr_t history_player_tick_fraction = 0x6C;
     constexpr std::size_t history_entry_size = 0x70;
+    constexpr std::uint32_t history_has_player_tick = 0x800 | 0x1000;
     constexpr std::uint32_t history_has_view_angles = 1;
 
     constexpr std::uintptr_t controller_sequence = 0x5910;
@@ -458,6 +459,16 @@ namespace systems
                     memory::ref<std::uint32_t>(info + pb_has_bits) |= interp_has_frac;
                 }
             }
+        }
+
+        void usercmd::set_history_player_tick(int index, int tick, float fraction)
+        {
+            const std::uintptr_t entry = history(index);
+            if (!entry || tick < 0)
+                return;
+            memory::write<int>(entry + history_player_tick_count, tick);
+            memory::write<float>(entry + history_player_tick_fraction, std::isfinite(fraction) ? std::clamp(fraction, 0.f, 0.999f) : 0.f);
+            memory::ref<std::uint32_t>(entry + pb_has_bits) |= history_has_player_tick;
         }
 
         int usercmd::history_player_tick(int index) const

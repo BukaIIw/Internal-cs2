@@ -657,6 +657,9 @@ void settings::register_all()
     add("rage.enabled", g_rage.enabled);
     add("bind.rage", g_rage.key, "Ragebot");
     add("bind.damage_override", g_rage.damage_override_key, "Damage override");
+    add("rage.doubletap", g_rage.doubletap);
+    add("bind.doubletap", g_rage.doubletap_key, "Double tap");
+    add("rage.doubletap_mode", g_rage.doubletap_mode);
     add("aim.legit", g_legit.enabled);
     add("bind.legit", g_legit.key, "Legitbot");
     add("bind.legit_random", g_legit.random_key, "Aim randomization");

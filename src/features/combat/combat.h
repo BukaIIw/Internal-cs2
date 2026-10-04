@@ -79,6 +79,17 @@ namespace features::combat
         bool m_stop = false;
     };
 
+    class doubletap
+    {
+    public:
+        void on_create_move_post(systems::input::usercmd& cmd);
+        void reset();
+
+    private:
+        bool m_release = false;
+        int m_shots = 0;
+    };
+
     class legit
     {
     public:
@@ -103,5 +114,6 @@ namespace features::combat
     inline shared g_shared{};
     inline rage g_rage{};
     inline legit g_legit{};
+    inline doubletap g_doubletap{};
     inline trigger g_trigger{};
 }

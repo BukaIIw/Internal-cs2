@@ -73,6 +73,7 @@
     <ClCompile Include="src\features\changer\knives.cpp" />
     <ClCompile Include="src\features\combat\hitbox.cpp" />
     <ClCompile Include="src\features\combat\backtrack.cpp" />
+    <ClCompile Include="src\features\combat\doubletap.cpp" />
     <ClCompile Include="src\features\combat\shots.cpp" />
     <ClCompile Include="src\features\combat\hitchance.cpp" />
     <ClCompile Include="src\features\combat\legit.cpp" />

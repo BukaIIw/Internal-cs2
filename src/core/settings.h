@@ -85,6 +85,9 @@ namespace settings
             bool prefer_body = false;
             bool nospread = false;
             bool teammates = false;
+            bool doubletap = false;
+            keys::bind doubletap_key{ 0, keys::mode::toggle };
+            int doubletap_mode = 0;
         };
 
         struct legit

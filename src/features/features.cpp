@@ -68,6 +68,7 @@ void features::register_all()
 
     events::subscribe(type::create_move_post, "rage", [](void* a) { combat::g_rage.on_create_move_post(cmd_of(a)); }, prio::combat);
     events::subscribe(type::create_move_post, "view apply", [](void* a) { g_view.apply(cmd_of(a)); }, prio::view);
+    events::subscribe(type::create_move_post, "doubletap", [](void* a) { combat::g_doubletap.on_create_move_post(cmd_of(a)); }, prio::view + 1);
     events::subscribe(type::create_move_post, "view end", [](void*) { g_view.end(); }, prio::last);
 
     events::subscribe(type::override_view, "thirdperson", [](void* a) {
@@ -79,7 +80,7 @@ void features::register_all()
     events::subscribe(type::present, "overlay", [](void*) { misc::g_overlay.on_present(ImGui::GetForegroundDrawList()); }, prio::normal + 1);
     events::subscribe(type::present, "menu", [](void*) { menu::render(); }, prio::last);
 
-    events::subscribe(type::level_init, "rage reset", [](void*) { combat::g_rage.reset(); }, prio::normal);
+    events::subscribe(type::level_init, "rage reset", [](void*) { combat::g_rage.reset(); combat::g_doubletap.reset(); }, prio::normal);
     events::subscribe(type::level_shutdown, "rage reset", [](void*) { combat::g_rage.reset(); }, prio::normal);
     events::subscribe(type::local_pawn_changed, "rage reset", [](void*) { combat::g_rage.reset(); }, prio::normal);
     events::subscribe(type::menu_toggle, "settings", [](void* a) { if (!*static_cast<bool*>(a)) settings::save(); }, prio::normal);
