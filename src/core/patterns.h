@@ -1,47 +1,191 @@
 #pragma once
-#include "../mem.h"
-#include <cstdint>
-#include <string>
-#include <vector>
+#include "addresses.h"
+#include <span>
 
 namespace patterns
 {
-    enum Status
-    {
-        Missing,
-        Found,
-        Unique,
-        Ambiguous
-    };
+    extern const ::addresses::entry add_entity;
+    extern const ::addresses::entry base_fire_guns_get_inaccuracy;
+    extern const ::addresses::entry button_state_alloc;
+    extern const ::addresses::entry cmd_interpreter;
+    extern const ::addresses::entry create_move;
+    extern const ::addresses::entry csgo_input;
+    extern const ::addresses::entry draw_flash_effect;
+    extern const ::addresses::entry draw_legs;
+    extern const ::addresses::entry draw_overhead;
+    extern const ::addresses::entry draw_scene_object;
+    extern const ::addresses::entry draw_scene_object_array;
+    extern const ::addresses::entry draw_skybox_array;
+    extern const ::addresses::entry dynamic_light_alloc;
+    extern const ::addresses::entry dynamic_light_manager;
+    extern const ::addresses::entry dynamic_light_time;
+    extern const ::addresses::entry engine_client_cmd;
+    extern const ::addresses::entry entity_list;
+    extern const ::addresses::entry filesystem_close;
+    extern const ::addresses::entry find_hud_element;
+    extern const ::addresses::entry frame_input_ring_base;
+    extern const ::addresses::entry frame_input_ring_idx;
+    extern const ::addresses::entry frame_stage_notify;
+    extern const ::addresses::entry game_entity_system;
+    extern const ::addresses::entry game_event_get_controller;
+    extern const ::addresses::entry game_event_get_float;
+    extern const ::addresses::entry game_event_get_int;
+    extern const ::addresses::entry game_event_get_pawn;
+    extern const ::addresses::entry game_event_get_string;
+    extern const ::addresses::entry game_event_manager;
+    extern const ::addresses::entry game_rules;
+    extern const ::addresses::entry game_scene_node_set_mesh_group;
+    extern const ::addresses::entry game_scene_node_set_skeleton;
+    extern const ::addresses::entry game_trace_manager;
+    extern const ::addresses::entry generate_primitives;
+    extern const ::addresses::entry get_aim_punch;
+    extern const ::addresses::entry get_bone_index;
+    extern const ::addresses::entry get_glow_color;
+    extern const ::addresses::entry get_inaccuracy;
+    extern const ::addresses::entry get_interp_amount;
+    extern const ::addresses::entry get_interpolated_shoot_position;
+    extern const ::addresses::entry get_spread;
+    extern const ::addresses::entry get_net_channel;
+    extern const ::addresses::entry get_tick_view_angles;
+    extern const ::addresses::entry get_transforms_for_hitbox_list;
+    extern const ::addresses::entry get_usercmd;
+    extern const ::addresses::entry get_usercmd_base;
+    extern const ::addresses::entry get_view_angles;
+    extern const ::addresses::entry get_world_group_handle;
+    extern const ::addresses::entry get_world_group_id;
+    extern const ::addresses::entry global_vars;
+    extern const ::addresses::entry handle_view_angles;
+    extern const ::addresses::entry history_field_alloc;
+    extern const ::addresses::entry hud;
+    extern const ::addresses::entry hud_death_notice_clear;
+    extern const ::addresses::entry hud_weapon_selection_update;
+    extern const ::addresses::entry init_particle_path_buffer;
+    extern const ::addresses::entry init_particle_path_buffer_alt;
+    extern const ::addresses::entry is_glowing;
+    extern const ::addresses::entry item_system;
+    extern const ::addresses::entry kv3_alloc;
+    extern const ::addresses::entry kv3_destroy;
+    extern const ::addresses::entry kv3_load;
+    extern const ::addresses::entry level_initialization;
+    extern const ::addresses::entry level_shutdown;
+    extern const ::addresses::entry light_data_queue;
+    extern const ::addresses::entry light_scene_object;
+    extern const ::addresses::entry local_player_controller;
+    extern const ::addresses::entry log_internal;
+    extern const ::addresses::entry material_create;
+    extern const ::addresses::entry material_manager;
+    extern const ::addresses::entry override_view;
+    extern const ::addresses::entry parse_report_hit;
+    extern const ::addresses::entry particle_create_effect;
+    extern const ::addresses::entry particle_destroy_effect;
+    extern const ::addresses::entry particle_manager;
+    extern const ::addresses::entry particle_set_control_point;
+    extern const ::addresses::entry particle_set_entity_binding;
+    extern const ::addresses::entry particle_set_transform;
+    extern const ::addresses::entry planted_c4;
+    extern const ::addresses::entry post_network_data_received;
+    extern const ::addresses::entry prediction_player;
+    extern const ::addresses::entry prediction_process_movement;
+    extern const ::addresses::entry prediction_reset_pawn;
+    extern const ::addresses::entry prediction_seed;
+    extern const ::addresses::entry prediction_set_pawn;
+    extern const ::addresses::entry prediction_set_state;
+    extern const ::addresses::entry prediction_setup_move;
+    extern const ::addresses::entry prediction_state;
+    extern const ::addresses::entry prepare_scene_material;
+    extern const ::addresses::entry process_input_event;
+    extern const ::addresses::entry read_frame_input;
+    extern const ::addresses::entry remove_entity;
+    extern const ::addresses::entry render_crosshair;
+    extern const ::addresses::entry render_decals;
+    extern const ::addresses::entry render_game_system_storage;
+    extern const ::addresses::entry render_scope;
+    extern const ::addresses::entry render_smoke;
+    extern const ::addresses::entry render_view;
+    extern const ::addresses::entry resource_system_load;
+    extern const ::addresses::entry resource_system_precache;
+    extern const ::addresses::entry serialize_move_crc;
+    extern const ::addresses::entry service_read;
+    extern const ::addresses::entry set_info;
+    extern const ::addresses::entry set_player_model;
+    extern const ::addresses::entry set_postprocess_vec;
+    extern const ::addresses::entry set_shader_param;
+    extern const ::addresses::entry set_shader_param_i;
+    extern const ::addresses::entry set_view_angles;
+    extern const ::addresses::entry set_voice_data;
+    extern const ::addresses::entry simulation_player;
+    extern const ::addresses::entry sort_primitives;
+    extern const ::addresses::entry setup_fog;
+    extern const ::addresses::entry play_sound;
+    extern const ::addresses::entry string_copy;
+    extern const ::addresses::entry subtick_move_alloc;
+    extern const ::addresses::entry trace_bullet;
+    extern const ::addresses::entry trace_bullet_data_init;
+    extern const ::addresses::entry trace_bullet_free;
+    extern const ::addresses::entry trace_bullet_update;
+    extern const ::addresses::entry trace_filter_init;
+    extern const ::addresses::entry trace_filter_set_collision;
+    extern const ::addresses::entry trace_hull;
+    extern const ::addresses::entry trace_ray;
+    extern const ::addresses::entry trace_ray_entity;
+    extern const ::addresses::entry update_fov_sensitivity;
+    extern const ::addresses::entry utl_vector_push;
+    extern const ::addresses::entry view_matrix;
+    extern const ::addresses::entry viewmodel_update_mesh;
+    extern const ::addresses::entry weapon_calculate_spread;
+    extern const ::addresses::entry weapon_get_entity_index;
+    extern const ::addresses::entry weapon_get_model_path;
+    extern const ::addresses::entry weapon_get_recoil_offset;
+    extern const ::addresses::entry weapon_get_viewmodel;
+    extern const ::addresses::entry weapon_recoil_data;
+    extern const ::addresses::entry weapon_set_mesh_group_mask;
+    extern const ::addresses::entry weapon_update_accuracy;
+    extern const ::addresses::entry weapon_update_composite_material;
+    extern const ::addresses::entry weapon_update_mesh;
+    extern const ::addresses::entry weapon_update_skin;
+    extern const ::addresses::entry econ_item_view_set_attribute;
+    extern const ::addresses::entry econ_item_view_remove_attribute;
+    extern const ::addresses::entry econ_item_view_invalidate_description;
+    extern const ::addresses::entry set_bodygroup;
+    extern const ::addresses::entry anim_graph_rebuild;
+    extern const ::addresses::entry base_fire_guns_get_inaccuracy_alt;
+    extern const ::addresses::entry fire_event_client_side;
+    extern const ::addresses::entry game_event_get_name;
+    extern const ::addresses::entry get_resource_view;
+    extern const ::addresses::entry match_found_handler;
+    extern const ::addresses::entry panorama_event;
+    extern const ::addresses::entry particle_draw_array;
+    extern const ::addresses::entry prediction_finish_move;
+    extern const ::addresses::entry draw_smoke_array;
+    extern const ::addresses::entry draw_smoke_array_fallback;
+    extern const ::addresses::entry smoke_volume_list;
+    extern const ::addresses::entry smoke_volume_list_head;
+    extern const ::addresses::entry set_player_ready;
+    extern const ::addresses::entry sys_session_client_dispatch;
+    extern const ::addresses::entry vote_start_handler;
+    extern const ::addresses::entry vac_integrity_vtable;
+    extern const ::addresses::entry vac_integrity_module_crc;
+    extern const ::addresses::entry vac_thread_report;
+    extern const ::addresses::entry vac_send_telemetry_164;
+    extern const ::addresses::entry vac_field_ret_tracker;
+    extern const ::addresses::entry vac_field_monitor;
+    extern const ::addresses::entry vac_thread_probe;
 
-    struct Entry
-    {
-        std::string name;
-        std::string module;
-        std::string pattern;
-        std::string generated;
-        std::string kind = "sig";
-        uint32_t rva = 0;
-        int expect = 1;
-        int status = Missing;
-        int matches = -1;
-        bool pending = false;
-    };
+    extern const ::addresses::entry merge_subtick;
+    extern const ::addresses::entry get_user_cmd_legacy;
+    extern const ::addresses::entry camera_think;
+    extern const ::addresses::entry get_hitbox_set;
+    extern const ::addresses::entry get_bone_index_for_hitbox;
+    extern const ::addresses::entry skeleton_bone_array;
+    extern const ::addresses::entry spread_seed;
+    extern const ::addresses::entry calc_spread;
+    extern const ::addresses::entry trace_shape;
+    extern const ::addresses::entry game_trace_manager_legacy;
+    extern const ::addresses::entry set_view_angles_full;
+    extern const ::addresses::entry entity_list_legacy;
+    extern const ::addresses::entry view_matrix_fn;
+    extern const ::addresses::entry get_aim_punch_fn;
+    extern const ::addresses::entry weapon_composite_offset;
 
-    inline bool looseOffsets = true;
-
-    uint8_t* Find(const mem::Module& m, const char* name, const char* pattern);
-    std::vector<uint8_t*> FindAll(const mem::Module& m, const char* name, const char* pattern, size_t limit, int expect = 1);
-    uint8_t* FindRef(const mem::Module& m, const char* name, const char* pattern, int dispOffset, int length);
-    void Note(const mem::Module& m, const char* name, const char* kind, const void* address);
-
-    std::vector<Entry> Snapshot();
-    void Verify();
-    void Generate(int index);
-    void GenerateAll();
-    void GenerateAt(const char* module, uint32_t rva);
-    std::string Custom(bool* pending);
-    bool Busy();
-    bool Export();
-    void Shutdown();
+    std::span<const ::addresses::entry* const> all();
 }
