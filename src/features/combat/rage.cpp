@@ -3,6 +3,7 @@
 #include "backtrack.h"
 #include "hitbox.h"
 #include "hitchance.h"
+#include "shots.h"
 #include "spread.h"
 #include "../../core/cstypes.h"
 #include "../../core/keys.h"
@@ -13,6 +14,7 @@
 #include "../../systems/prediction.h"
 #include "../../systems/tracing.h"
 #include "../../systems/view.h"
+#include <Windows.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -33,6 +35,8 @@ namespace
     constexpr float damage_tolerance = 1.f;
     constexpr float percent = 100.f;
     constexpr int point_budget = 192;
+    constexpr int autowall_budget = 40;
+    constexpr double scan_budget_ms = 2.5;
     constexpr float sort_center_height = 36.f;
     constexpr std::size_t player_slots = 65;
 
@@ -63,13 +67,38 @@ namespace
         std::uint32_t last_target = 0xFFFFFFFF;
         int scope_wait = 0;
         bool nospread = false;
+        bool fired = false;
         math::qangle desired{};
         math::qangle recoil{};
+        math::qangle aim{};
+        shots::fired shot{};
     };
 
     rage_state g_state{};
     hitbox::set g_scan_boxes{};
     hitbox::set g_best_boxes{};
+    int g_autowall_calls = 0;
+    LONGLONG g_deadline = 0;
+
+    LONGLONG now_ticks()
+    {
+        LARGE_INTEGER value{};
+        QueryPerformanceCounter(&value);
+        return value.QuadPart;
+    }
+
+    void start_budget()
+    {
+        LARGE_INTEGER frequency{};
+        QueryPerformanceFrequency(&frequency);
+        g_deadline = now_ticks() + static_cast<LONGLONG>(static_cast<double>(frequency.QuadPart) * scan_budget_ms / 1000.0);
+        g_autowall_calls = 0;
+    }
+
+    bool over_budget(int point_total)
+    {
+        return point_total >= point_budget || now_ticks() > g_deadline;
+    }
 
     bool override_active(const settings::combat::rage& cfg)
     {
@@ -121,6 +150,11 @@ namespace
     {
         if (autowall)
         {
+            if (probe(boxes, player, local_pawn, ctx, box, point, false, out))
+                return true;
+            if (g_autowall_calls >= autowall_budget)
+                return false;
+            ++g_autowall_calls;
             const systems::tracing::bullet_result bullet = systems::g_tracing.fire_bullet(local_pawn, player.pawn, ctx.eye, point, true);
             if (!bullet.ok || !bullet.hit_target || !(bullet.damage > 0.f))
                 return false;
@@ -167,7 +201,7 @@ namespace
                     continue;
                 if (ctx.eye.distance(point) > ctx.range)
                     continue;
-                if (point_total >= point_budget)
+                if (over_budget(point_total))
                     return best;
                 ++point_total;
                 candidate next{};
@@ -234,6 +268,8 @@ namespace features::combat
         m_stop = false;
         debug = {};
         g_state.nospread = false;
+        g_state.fired = false;
+        shots::update();
 
         if (g_state.scope_wait > 0)
             --g_state.scope_wait;
@@ -281,7 +317,8 @@ namespace features::combat
 
         candidate best{};
         int point_total = 0;
-        for (std::size_t i = 0; i < order_count && point_total < point_budget; ++i)
+        start_budget();
+        for (std::size_t i = 0; i < order_count && !over_budget(point_total); ++i)
         {
             const systems::entities::player& player = players[order[i].slot];
             const float required = static_cast<float>(required_damage(configured, player.health));
@@ -299,7 +336,7 @@ namespace features::combat
                 const backtrack::record* records[backtrack::max_records]{};
                 const int count = backtrack::collect(static_cast<int>(order[i].slot), ctx.tick_base, records, backtrack::max_records);
                 const int picks[backtrack_scans]{ count - 1, count / 2, 1 };
-                for (int k = 0; k < backtrack_scans && point_total < point_budget; ++k)
+                for (int k = 0; k < backtrack_scans && !over_budget(point_total); ++k)
                 {
                     const int index = picks[k];
                     if (index < 1 || index >= count || (k > 0 && index == picks[k - 1]))
@@ -387,12 +424,19 @@ namespace features::combat
 
         const systems::prediction::state& pre = systems::g_prediction.pre();
         const std::uint32_t flags = pre.valid ? pre.flags : local.flags;
-        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && (cfg.autostop_early || ctx.ticks_to_fire <= autostop_ticks);
+        const std::uint32_t stop_flags = cfg.autostop_flags;
+        const bool between = (stop_flags & settings::combat::as_between_shots) != 0;
+        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && (between || ctx.ticks_to_fire <= autostop_ticks);
+        const bool lethal_ok = (stop_flags & settings::combat::as_lethal) == 0 || effective(best) >= static_cast<float>(best.player.health);
         const bool grounded = (flags & cstypes::entity_flags::on_ground) != 0;
-        const math::vector3 velocity = pre.valid ? pre.networked_velocity : local.velocity;
-        const math::vector3 origin = pre.valid ? pre.networked_origin : local.origin;
-        const bool air_ok = cfg.autostop_air || (cfg.autostop_landing && landing_soon(local.pawn, origin, velocity));
-        m_stop = cfg.autostop && ready_soon && (grounded || air_ok);
+        bool air_ok = (stop_flags & settings::combat::as_air) != 0;
+        if (!grounded && !air_ok && (stop_flags & settings::combat::as_landing) != 0)
+        {
+            const math::vector3 velocity = pre.valid ? pre.networked_velocity : local.velocity;
+            const math::vector3 origin = pre.valid ? pre.networked_origin : local.origin;
+            air_ok = landing_soon(local.pawn, origin, velocity);
+        }
+        m_stop = cfg.autostop && ready_soon && lethal_ok && (grounded || air_ok);
 
         if (pass)
         {
@@ -407,11 +451,25 @@ namespace features::combat
         if (!cfg.silent || m_firing)
             systems::g_view.aim(aim, cfg.silent, rage_priority, "rage");
 
-        if (m_firing && nospread)
+        if (m_firing)
         {
-            g_state.nospread = true;
+            g_state.fired = true;
+            g_state.nospread = nospread;
             g_state.desired = desired;
             g_state.recoil = recoil;
+            g_state.aim = aim;
+            shots::fired& shot = g_state.shot;
+            shot.player = best.player;
+            shot.slot = best.player.index;
+            shot.group = best.group;
+            shot.damage = best.damage;
+            shot.hitchance = debug.hitchance;
+            shot.backtrack_tick = best.tick;
+            shot.pitch_broken = backtrack::pitch_broken(best.player.index);
+            shot.penetrated = autowall && best.penetrated;
+            shot.eye = ctx.eye;
+            shot.recoil = recoil;
+            shot.boxes = g_best_boxes;
         }
         if (revolver && cfg.autofire && !m_firing)
             cock_revolver(ctx);
@@ -420,8 +478,10 @@ namespace features::combat
 
     void rage::on_create_move_post(systems::input::usercmd& cmd)
     {
-        if (!g_state.nospread)
+        if (!g_state.fired)
             return;
+        g_state.fired = false;
+        const bool nospread = g_state.nospread;
         g_state.nospread = false;
         if (!cmd)
             return;
@@ -431,14 +491,24 @@ namespace features::combat
         const int tick = cmd.history_player_tick(count - 1);
         if (tick <= 0)
             return;
-        math::qangle angle{};
-        if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+        math::qangle view = g_state.aim;
+        if (nospread)
         {
-            systems::g_view.aim(angle, true, nospread_priority, "nospread");
-            debug.nospread = 1;
+            math::qangle angle{};
+            if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+            {
+                systems::g_view.aim(angle, true, nospread_priority, "nospread");
+                debug.nospread = 1;
+                view = angle;
+            }
+            else
+                debug.nospread = 2;
         }
-        else
-            debug.nospread = 2;
+        const systems::local_player::data local = systems::g_local.get();
+        g_state.shot.nospread = debug.nospread == 1;
+        g_state.shot.view = view;
+        g_state.shot.tick = tick;
+        shots::on_fire(g_state.shot, g_shared.ctx(), local.pawn);
     }
 
     void rage::reset()
@@ -448,5 +518,6 @@ namespace features::combat
         debug = {};
         g_state = {};
         backtrack::reset();
+        shots::reset();
     }
 }

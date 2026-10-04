@@ -32,6 +32,14 @@ namespace settings
             hb_all = 0xFF
         };
 
+        enum autostop_bits : std::uint32_t
+        {
+            as_between_shots = 1u << 0,
+            as_lethal = 1u << 1,
+            as_air = 1u << 2,
+            as_landing = 1u << 3
+        };
+
         enum weapon_group : int
         {
             wg_global,
@@ -60,9 +68,7 @@ namespace settings
             bool autofire = true;
             bool autowall = false;
             bool autostop = true;
-            bool autostop_air = false;
-            bool autostop_early = false;
-            bool autostop_landing = true;
+            std::uint32_t autostop_flags = as_landing;
             bool autoscope = true;
             float fov = 180.f;
             std::uint32_t hitboxes = hb_head | hb_chest | hb_stomach | hb_pelvis;
@@ -159,6 +165,7 @@ namespace settings
         float thirdperson_distance = 120.f;
         bool watermark = true;
         bool keybinds = true;
+        bool shot_logs = true;
         float keybinds_x = -1.f;
         float keybinds_y = -1.f;
     };

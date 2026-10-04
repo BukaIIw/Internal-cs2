@@ -67,6 +67,14 @@ namespace
     };
     constexpr int hitbox_count = static_cast<int>(std::size(hitbox_names));
 
+    const char* const autostop_names[] = { "Between shots", "Lethal", "In air", "Before landing" };
+    const std::uint32_t autostop_bits[] = {
+        settings::combat::as_between_shots,
+        settings::combat::as_lethal,
+        settings::combat::as_air,
+        settings::combat::as_landing,
+    };
+
     int g_page = page_skins;
     int g_tabs[page_count]{};
     float g_open_anim = 0.f;
@@ -157,9 +165,7 @@ namespace
         ui::toggle("Autofire", &rage.autofire);
         ui::toggle("Autowall", &rage.autowall);
         ui::toggle("Autostop", &rage.autostop);
-        ui::toggle("Stop in air", &rage.autostop_air);
-        ui::toggle("Stop between shots", &rage.autostop_early);
-        ui::toggle("Stop before landing", &rage.autostop_landing);
+        ui::flags("Autostop options", &rage.autostop_flags, autostop_names, autostop_bits, static_cast<int>(std::size(autostop_names)));
         ui::toggle("Autoscope", &rage.autoscope);
         ui::toggle("No spread", &rage.nospread);
         ui::end_card();
@@ -335,6 +341,7 @@ namespace
         ui::begin_card("Overlay##misc", icon::List);
         ui::toggle("Watermark", &misc.watermark);
         ui::toggle("Keybind list", &misc.keybinds);
+        ui::toggle("Shot logs", &misc.shot_logs);
         ui::end_card();
         ui::end_columns();
     }

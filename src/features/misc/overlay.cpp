@@ -1,6 +1,7 @@
 #include "misc.h"
 #include "../../core/keys.h"
 #include "../../core/settings.h"
+#include "../combat/shots.h"
 #include "../../ui/menu.h"
 #include "../../ui/render.h"
 #include "imgui.h"
@@ -8,6 +9,7 @@
 #include <cfloat>
 #include <cstdio>
 #include <ctime>
+#include <Windows.h>
 
 namespace
 {
@@ -18,6 +20,9 @@ namespace
     constexpr float min_list_width = 190.f;
     constexpr float column_gap = 16.f;
     constexpr int max_rows = 32;
+    constexpr int shot_rows = 6;
+    constexpr std::uint64_t shot_visible_ms = 6000;
+    constexpr std::uint64_t shot_fade_ms = 1000;
 
     bool g_dragging = false;
     ImVec2 g_drag_offset{};
@@ -161,6 +166,30 @@ namespace
             row_y += line;
         }
     }
+
+    void draw_shots(ImDrawList* draw, ImFont* font, float size)
+    {
+        features::combat::shots::entry entries[shot_rows];
+        const int count = features::combat::shots::snapshot(entries, shot_rows);
+        const std::uint64_t now = GetTickCount64();
+        float y = margin;
+        for (int i = count - 1; i >= 0; --i)
+        {
+            const auto& e = entries[i];
+            const std::uint64_t age = now - e.time;
+            if (age >= shot_visible_ms)
+                continue;
+            float alpha = 1.f;
+            if (age > shot_visible_ms - shot_fade_ms)
+                alpha = static_cast<float>(shot_visible_ms - age) / static_cast<float>(shot_fade_ms);
+            const int a = static_cast<int>(alpha * 255.f);
+            const ImU32 tag = e.hit ? IM_COL32(120, 220, 140, a) : IM_COL32(240, 120, 110, a);
+            const char* label = e.hit ? "[hit] " : "[miss] ";
+            render::Text(draw, font, size, ImVec2(margin, y), tag, label);
+            render::Text(draw, font, size, ImVec2(margin + text_width(font, size, label), y), IM_COL32(235, 238, 245, a), e.text);
+            y += size + 4.f;
+        }
+    }
 }
 
 namespace features::misc
@@ -168,7 +197,7 @@ namespace features::misc
     void overlay::on_present(ImDrawList* draw)
     {
         const auto& cfg = settings::g_misc;
-        if (!draw || (!cfg.watermark && !cfg.keybinds))
+        if (!draw || (!cfg.watermark && !cfg.keybinds && !cfg.shot_logs))
             return;
 
         ImFont* font = ImGui::GetFont();
@@ -182,10 +211,12 @@ namespace features::misc
             y = draw_watermark(draw, font, size, screen, y);
         if (cfg.keybinds)
             draw_keybinds(draw, font, size, screen, y);
+        if (cfg.shot_logs)
+            draw_shots(draw, font, size);
     }
 
     bool overlay::wants_frame() const
     {
-        return settings::g_misc.watermark || settings::g_misc.keybinds;
+        return settings::g_misc.watermark || settings::g_misc.keybinds || settings::g_misc.shot_logs;
     }
 }

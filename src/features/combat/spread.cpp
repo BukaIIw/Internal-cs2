@@ -142,6 +142,33 @@ namespace features::combat::spread
         return PATTERN(patterns::spread_seed) && (PATTERN(patterns::calc_spread) || PATTERN(patterns::weapon_calculate_spread));
     }
 
+    bool bullet(const weapon_context& ctx, const math::qangle& view, const math::qangle& recoil, int tick, math::vector3& out)
+    {
+        std::uintptr_t calc_function = PATTERN(patterns::calc_spread);
+        if (!calc_function)
+            calc_function = PATTERN(patterns::weapon_calculate_spread);
+        const std::uintptr_t seed_function = PATTERN(patterns::spread_seed);
+        if (!ctx.valid || !seed_function || !calc_function || tick <= 0 || !view.is_valid() || !recoil.is_valid())
+            return false;
+        const math::qangle seed_angles{ view.x, view.y, 0.f };
+        std::uint32_t seed = 0;
+        if (!call_seed(seed_function, seed_angles, tick, seed))
+            return false;
+        float x[max_bullets]{};
+        float y[max_bullets]{};
+        if (!call_calc_spread(calc_function, ctx.def, std::clamp(ctx.bullets, 1, max_bullets), ctx.mode, seed + 1, ctx.inaccuracy, ctx.spread, ctx.recoil_index, x, y))
+            return false;
+        if (!std::isfinite(x[0]) || !std::isfinite(y[0]))
+            return false;
+        const math::qangle shot{ view.x + recoil.x, math::helpers::normalized_angle(view.y + recoil.y), view.z };
+        math::vector3 f{};
+        math::vector3 r{};
+        math::vector3 u{};
+        math::helpers::angle_vectors(shot, f, r, u);
+        out = (f + r * x[0] + u * y[0]).normalized();
+        return out.is_valid() && !out.is_zero();
+    }
+
     bool compensate(const weapon_context& ctx, const math::qangle& desired, const math::qangle& recoil, int tick, math::qangle& out)
     {
         std::uintptr_t calc_function = PATTERN(patterns::calc_spread);

@@ -682,9 +682,7 @@ void settings::register_all()
         add(group_key(prefix, "rage.autofire"), rage.autofire);
         add(group_key(prefix, "rage.autowall"), rage.autowall);
         add(group_key(prefix, "rage.autostop"), rage.autostop);
-        add(group_key(prefix, "rage.autostop_air"), rage.autostop_air);
-        add(group_key(prefix, "rage.autostop_early"), rage.autostop_early);
-        add(group_key(prefix, "rage.autostop_landing"), rage.autostop_landing);
+        add(group_key(prefix, "rage.autostop_flags"), rage.autostop_flags);
         add(group_key(prefix, "rage.autoscope"), rage.autoscope);
         add(group_key(prefix, "rage.fov"), rage.fov);
         add(group_key(prefix, "rage.hitboxes"), rage.hitboxes);
@@ -758,6 +756,7 @@ void settings::register_all()
     add("camera.distance", g_misc.thirdperson_distance);
     add("overlay.watermark", g_misc.watermark);
     add("overlay.keybinds", g_misc.keybinds);
+    add("overlay.shot_logs", g_misc.shot_logs);
     add("overlay.keybinds_x", g_misc.keybinds_x);
     add("overlay.keybinds_y", g_misc.keybinds_y);
 

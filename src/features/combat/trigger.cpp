@@ -155,9 +155,13 @@ namespace features::combat
             m_seen = now;
         if (now - m_seen < static_cast<std::uint64_t>(std::max(0, cfg.delay)))
             return;
-        const bool revolver = ctx.def == cstypes::weapon_id::revolver;
-        if ((!ctx.can_fire && !revolver) || !lethal_enough(cfg, player, local.pawn, ctx, target))
+        if (!ctx.can_fire || !lethal_enough(cfg, player, local.pawn, ctx, target))
             return;
+        if (ctx.def == cstypes::weapon_id::revolver && !(ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1))
+        {
+            systems::g_view.hold_attack();
+            return;
+        }
         systems::g_view.fire();
     }
 }
