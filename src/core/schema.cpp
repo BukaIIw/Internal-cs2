@@ -17,13 +17,13 @@ namespace
     constexpr std::size_t find_declared_class_index = 2;
 
     constexpr std::uintptr_t class_name_offset = 0x08;
-    constexpr std::uintptr_t class_size_offset = 0x18;
     constexpr std::size_t class_info_size = 0x40;
     constexpr std::size_t class_scan_size = 0x80;
     constexpr std::int32_t anchor_field_offset = 0x10;
 
     struct schema_layout
     {
+        std::uintptr_t class_size = 0x18;
         std::uintptr_t field_count = 0x1C;
         std::uintptr_t fields = 0x28;
         std::uintptr_t field_stride = 0x20;
@@ -212,7 +212,7 @@ namespace
         {
             if (!valid_class(info))
                 return -1;
-            const int size = memory::read<std::int32_t>(info + class_size_offset);
+            const int size = memory::read<std::int32_t>(info + g_layout.class_size);
             return size > 0 && size <= max_field_offset ? size : -1;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -424,10 +424,12 @@ namespace
         const bool fields = detect_fields(entity, layout);
         const bool offset = fields && detect_field_offset(root, layout);
         const bool bases = detect_bases(entity, root, layout);
+        if (fields && layout.field_count >= 0x14)
+            layout.class_size = layout.field_count - 4;
         g_layout = layout;
         logs::Add(fields && offset && bases ? logs::Success : logs::Warning,
-            "Schema layout: n+%X f+%X s%X nm+%X off+%X b+%X bn+%X bs%X bc+%X [%d%d%d]",
-            static_cast<unsigned>(layout.field_count), static_cast<unsigned>(layout.fields), static_cast<unsigned>(layout.field_stride),
+            "Schema layout: sz+%X n+%X f+%X s%X nm+%X off+%X b+%X bn+%X bs%X bc+%X [%d%d%d]",
+            static_cast<unsigned>(layout.class_size), static_cast<unsigned>(layout.field_count), static_cast<unsigned>(layout.fields), static_cast<unsigned>(layout.field_stride),
             static_cast<unsigned>(layout.field_name), static_cast<unsigned>(layout.field_offset), static_cast<unsigned>(layout.bases),
             static_cast<unsigned>(layout.base_count), static_cast<unsigned>(layout.base_stride), static_cast<unsigned>(layout.base_class),
             fields ? 1 : 0, offset ? 1 : 0, bases ? 1 : 0);
@@ -521,6 +523,7 @@ namespace schema
         std::lock_guard lock(g_lock);
         if (!scope_at(0))
             return -1;
+        detect_layout();
         const std::uintptr_t info = find_class_locked(class_name);
         return info ? read_class_size(info) : -1;
     }
