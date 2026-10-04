@@ -1,4 +1,41 @@
-import os, re, subprocess, sys, concurrent.futures as cf
+import os, re, shutil, subprocess, sys, concurrent.futures as cf
+
+_msvc_env = None
+
+def msvc_env():
+    global _msvc_env
+    if _msvc_env is not None:
+        return _msvc_env
+    vswhere = os.path.join(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'), 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
+    if not os.path.isfile(vswhere):
+        _msvc_env = {}
+        return _msvc_env
+    inst = subprocess.run([vswhere, '-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'], capture_output=True, text=True).stdout.strip().splitlines()
+    if not inst:
+        _msvc_env = {}
+        return _msvc_env
+    bat = os.path.join(inst[0], 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
+    out = subprocess.run('call "' + bat + '" >nul && set', shell=True, capture_output=True, text=True, errors='ignore').stdout
+    env = {}
+    for line in out.splitlines():
+        k, sep, v = line.partition('=')
+        if sep:
+            env[k] = v
+    _msvc_env = env if 'INCLUDE' in env else {}
+    return _msvc_env
+
+def use_msvc():
+    return os.name == 'nt' and shutil.which('clang++') is None and bool(msvc_env())
+
+def check_msvc(root, f, extra):
+    env = msvc_env()
+    cl = shutil.which('cl.exe', path=env.get('Path') or env.get('PATH')) or 'cl.exe'
+    cmd = [cl, '/nologo', '/Zs', '/std:c++20', '/EHa', '/utf-8', '/W0', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX', '/D_CRT_SECURE_NO_WARNINGS', '/DUNICODE', '/D_UNICODE',
+           '/I' + os.path.join(root, 'src'), '/I' + os.path.join(root, 'deps', 'imgui'), '/I' + os.path.join(root, 'deps', 'imgui', 'backends'), '/I' + os.path.join(root, 'deps', 'minhook', 'include'), '/I' + root] + extra + [os.path.join(root, f)]
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env, errors='ignore', cwd=root)
+    text = r.stdout + r.stderr
+    errs = [l for l in text.splitlines() if re.search(r'\b(fatal )?error [A-Z]+\d+', l)]
+    return f, errs, text
 
 def project_files(root):
     vcx = [f for f in os.listdir(root) if f.endswith('.vcxproj')]
@@ -38,7 +75,8 @@ def main():
     files = args or project_files(root)
     total = 0
     with cf.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
-        for f, errs, raw in ex.map(lambda f: check(root, f, []), files):
+        checker = check_msvc if use_msvc() else check
+        for f, errs, raw in ex.map(lambda f: checker(root, f, []), files):
             total += len(errs)
             if errs:
                 print(f'== {f}: {len(errs)} error(s)')

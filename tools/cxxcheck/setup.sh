@@ -1,6 +1,7 @@
 #!/bin/sh
 set -e
 cd "$(dirname "$0")"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) python -c "exec(open('cxxcheck.py').read().split('def main')[0]); print('ready (msvc)' if msvc_env() else 'msvc not found')"; exit 0;; esac
 apt-get install -y -q mingw-w64-x86-64-dev g++-mingw-w64-x86-64-posix clang >/dev/null
 mkdir -p deps
 [ -d deps/imgui ] || (git clone -q https://github.com/ocornut/imgui.git deps/imgui && git -C deps/imgui checkout -q ed73ef4e84c9488256c5710de6ff1ebc2c9a8496)
