@@ -164,7 +164,8 @@ namespace systems
             cmd.buttons() |= attack;
             cmd.buttons_changed() |= attack;
             cmd.set_base_buttons(attack, 0);
-            cmd.set_attack1_index(std::max(0, count - 1));
+            if (count > 0)
+                cmd.set_attack1_index(count - 1);
             m_applied_attack = true;
         }
         else if (m_last_fired && !g_user_attack)
