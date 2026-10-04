@@ -54,6 +54,40 @@ namespace
         return true;
     }
 
+    bool analytic(const settings::combat::trigger& cfg, std::uintptr_t local_pawn, const weapon_context& ctx, const math::vector3& forward, systems::entities::player& out_player, crosshair_hit& out)
+    {
+        const systems::tracing::result world = systems::g_tracing.trace_line(ctx.eye, ctx.eye + forward * ctx.range, local_pawn, cstypes::masks::world);
+        if (!world.ok)
+            return false;
+        float limit = std::clamp(world.fraction, 0.f, 1.f) * ctx.range;
+        bool found = false;
+        const auto players = systems::g_entities.players();
+        for (const systems::entities::player& player : players)
+        {
+            if (!detail::valid_target(player, local_pawn, cfg.teammates))
+                continue;
+            if (!hitbox::collect(player.pawn, g_boxes))
+                continue;
+            float distance = 0.f;
+            const int index = hitbox::nearest(g_boxes, ctx.eye, forward, limit, distance);
+            if (index < 0)
+                continue;
+            const hitbox::box& box = g_boxes.boxes[index];
+            if ((box.bit & cfg.hitboxes) == 0)
+                continue;
+            limit = distance;
+            out_player = player;
+            out.group = box.group;
+            out.bit = box.bit;
+            out.distance = distance;
+            out.point = ctx.eye + forward * distance;
+            found = true;
+        }
+        if (found)
+            hitbox::collect(out_player.pawn, g_boxes);
+        return found;
+    }
+
     bool lethal_enough(const settings::combat::trigger& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const crosshair_hit& hit)
     {
         const float required = static_cast<float>(std::max(1, std::min(cfg.minimum_damage, player.health)));
@@ -78,14 +112,15 @@ namespace features::combat
 {
     void trigger::on_create_move(systems::input::frame& frame)
     {
-        const settings::combat::trigger& cfg = settings::g_trigger;
-        if (!frame.valid() || !keys::active(cfg.enabled, cfg.key))
+        const settings::combat::trigger& global = settings::g_trigger;
+        if (!frame.valid() || !keys::active(global.enabled, global.key))
         {
             m_seen = 0;
             return;
         }
 
         const weapon_context& ctx = g_shared.ctx();
+        const settings::combat::trigger& cfg = settings::trigger_for(ctx.group);
         const systems::local_player::data local = systems::g_local.get();
         if (!ctx.valid || !ctx.gun || !ctx.eye.is_valid() || !local.is_alive || !local.pawn || !systems::g_tracing.ready())
         {
@@ -99,15 +134,17 @@ namespace features::combat
         math::vector3 forward{};
         math::helpers::angle_vectors(angle, forward);
         const systems::tracing::result hit = systems::g_tracing.trace_line(ctx.eye, ctx.eye + forward * ctx.range, local.pawn, cstypes::masks::shot);
-        if (!hit.ok || !hit.entity)
-        {
-            m_seen = 0;
-            return;
-        }
-
-        const systems::entities::player player = systems::g_entities.player_by_pawn(hit.entity);
+        systems::entities::player player{};
         crosshair_hit target{};
-        if (!detail::valid_target(player, local.pawn, cfg.teammates) || !resolve(hit, ctx.eye, forward, ctx.range, target) || (target.bit & cfg.hitboxes) == 0)
+        bool found = false;
+        if (hit.ok && hit.entity)
+        {
+            player = systems::g_entities.player_by_pawn(hit.entity);
+            found = detail::valid_target(player, local.pawn, cfg.teammates) && resolve(hit, ctx.eye, forward, ctx.range, target) && (target.bit & cfg.hitboxes) != 0;
+        }
+        if (!found)
+            found = analytic(cfg, local.pawn, ctx, forward, player, target);
+        if (!found)
         {
             m_seen = 0;
             return;
@@ -118,7 +155,8 @@ namespace features::combat
             m_seen = now;
         if (now - m_seen < static_cast<std::uint64_t>(std::max(0, cfg.delay)))
             return;
-        if (!ctx.can_fire || !lethal_enough(cfg, player, local.pawn, ctx, target))
+        const bool revolver = ctx.def == cstypes::weapon_id::revolver;
+        if ((!ctx.can_fire && !revolver) || !lethal_enough(cfg, player, local.pawn, ctx, target))
             return;
         systems::g_view.fire();
     }

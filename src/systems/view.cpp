@@ -17,9 +17,14 @@ namespace
     bool g_user_attack = false;
     bool g_frame_aimed = false;
 
+    bool revolver()
+    {
+        return features::combat::g_shared.ctx().def == cstypes::weapon_id::revolver;
+    }
+
     bool semi_auto_locked(bool last_fired)
     {
-        return last_fired && !features::combat::g_shared.ctx().full_auto;
+        return last_fired && !features::combat::g_shared.ctx().full_auto && !revolver();
     }
 
     bool event_angles_follow_aim()
@@ -67,6 +72,7 @@ namespace systems
             m_last_fired = m_fire && m_applied_attack;
         m_request = {};
         m_fire = false;
+        m_hold = false;
         m_block_fire = false;
         m_applied_attack = false;
         m_fire_when = 0.f;
@@ -96,6 +102,7 @@ namespace systems
         if (m_block_fire || semi_auto_locked(m_last_fired))
             return false;
         m_fire = true;
+        m_hold = revolver();
         m_fire_when = when < 0.f || !std::isfinite(when) ? default_fire_when : std::clamp(when, 0.f, max_fire_when);
         return true;
     }
@@ -116,6 +123,14 @@ namespace systems
 
         if (!m_fire)
             return;
+
+        if (m_hold)
+        {
+            if (!frame.held(attack))
+                frame.press(attack, 0.f);
+            m_applied_attack = true;
+            return;
+        }
 
         const float release_when = std::min(m_fire_when + release_delay, max_fire_when);
         frame.remove_steps(attack);
@@ -164,7 +179,7 @@ namespace systems
             cmd.buttons() |= attack;
             cmd.buttons_changed() |= attack;
             cmd.set_base_buttons(attack, 0);
-            if (count > 0)
+            if (count > 0 && !m_hold)
                 cmd.set_attack1_index(count - 1);
             m_applied_attack = true;
         }
@@ -180,6 +195,7 @@ namespace systems
         m_last_fired = m_fire && m_applied_attack;
         m_request = {};
         m_fire = false;
+        m_hold = false;
         m_block_fire = false;
         m_applied_attack = false;
         m_fire_when = 0.f;

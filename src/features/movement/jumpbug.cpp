@@ -25,8 +25,6 @@ namespace
     constexpr float ground_probe = 2.f;
     constexpr float default_gravity = 800.f;
     constexpr float default_standable_normal = 0.7f;
-    constexpr float flat_normal = 0.98f;
-    constexpr float strict_flat_normal = 0.985f;
     constexpr float min_when = 0.001f;
     constexpr float max_when = 0.99f;
     constexpr int jumpbug_steps = 4;
@@ -118,10 +116,18 @@ namespace features::movement
         m_active_this_tick = false;
 
         if (!frame.valid() || !keys::active(settings::g_movement.jumpbug, settings::g_movement.jumpbug_key))
+        {
+            m_ducking = false;
+            m_release_jump = false;
             return;
+        }
 
-        if (!frame.really_held(in_jump))
-            return;
+        if (m_release_jump)
+        {
+            m_release_jump = false;
+            if (!frame.really_held(in_jump) && detail::jump_down(frame))
+                frame.release(in_jump, 0.f);
+        }
 
         const auto local = systems::g_local.get();
         if (!local.pawn || !local.is_alive)
@@ -132,34 +138,46 @@ namespace features::movement
             return;
 
         if (detail::ladder_or_noclip(detail::move_type(local.pawn, prestate)))
+        {
+            m_ducking = false;
             return;
+        }
 
-        if (detail::on_ground(prestate) || prestate.networked_velocity.z > 0.f)
+        if (detail::on_ground(prestate))
+        {
+            if (m_ducking && !frame.really_held(in_duck))
+                frame.release(in_duck, 0.f);
+            m_ducking = false;
+            return;
+        }
+
+        if (prestate.networked_velocity.z > 0.f)
             return;
 
         const std::uintptr_t services = detail::movement_services(local.pawn);
         if (!services)
             return;
 
-        const auto landing = detail::trace_landing(local.pawn, services, prestate, frame.really_held(in_duck));
-        if (!landing)
-            return;
-
         if (systems::input::max_steps - frame.step_count() < jumpbug_steps)
             return;
 
-        const float dot = landing->velocity.x * landing->normal.x + landing->velocity.y * landing->normal.y;
-        m_active_this_tick = landing->normal.z >= flat_normal || dot >= 0.f;
+        if (!frame.held(in_duck))
+            frame.press(in_duck, 0.f);
+        m_ducking = true;
+
+        const auto landing = detail::trace_landing(local.pawn, services, prestate, true);
+        if (!landing || landing->normal.z < default_standable_normal)
+            return;
 
         const float when = std::clamp(landing->fraction, min_when, max_when);
         m_landing_fraction = when;
+        m_active_this_tick = true;
 
-        if (landing->normal.z < strict_flat_normal)
-            m_active_this_tick = false;
-
-        frame.press(in_duck, 0.f);
         frame.release(in_duck, when);
-        frame.release(in_jump, when);
+        if (detail::jump_down(frame))
+            frame.release(in_jump, std::max(min_when, when - detail::subtick * 0.5f));
         frame.press(in_jump, when);
+        m_release_jump = true;
+        m_ducking = false;
     }
 }

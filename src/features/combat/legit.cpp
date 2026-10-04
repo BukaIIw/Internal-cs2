@@ -1,6 +1,7 @@
 #include "combat.h"
 #include "combat_detail.h"
 #include "hitbox.h"
+#include "../../core/cstypes.h"
 #include "../../core/keys.h"
 #include "../../core/math.h"
 #include "../../core/settings.h"
@@ -9,6 +10,7 @@
 #include "../../systems/tracing.h"
 #include "../../systems/view.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace
@@ -16,6 +18,21 @@ namespace
     using namespace features::combat;
 
     constexpr int legit_priority = 1;
+    constexpr float linear_max_step = 10.f;
+    constexpr float min_speed = 0.01f;
+    constexpr float min_speed_drop = 0.97f;
+    constexpr float max_jitter = 0.18f;
+    constexpr int random_interval = 6;
+
+    std::uint32_t g_rng = 0x9E3779B9u;
+
+    float random01()
+    {
+        g_rng ^= g_rng << 13;
+        g_rng ^= g_rng >> 17;
+        g_rng ^= g_rng << 5;
+        return static_cast<float>(g_rng & 0xFFFFFFu) / static_cast<float>(0xFFFFFFu);
+    }
 
     struct aim_box
     {
@@ -25,9 +42,8 @@ namespace
 
     hitbox::set g_boxes{};
 
-    bool best_box(const systems::entities::player& player, std::uintptr_t local_pawn, const math::vector3& eye, const math::qangle& reference, aim_box& out)
+    bool best_box(const settings::combat::legit& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const math::vector3& eye, const math::qangle& reference, aim_box& out)
     {
-        const settings::combat::legit& cfg = settings::g_legit;
         if (!hitbox::collect(player.pawn, g_boxes))
             return false;
 
@@ -62,48 +78,101 @@ namespace features::combat
 {
     void legit::on_create_move(systems::input::frame& frame)
     {
-        const settings::combat::legit& cfg = settings::g_legit;
-        if (!frame.valid() || !keys::active(cfg.enabled, cfg.key))
-            return;
-
+        const settings::combat::legit& global = settings::g_legit;
         const weapon_context& ctx = g_shared.ctx();
-        if (!ctx.valid || !ctx.gun || !ctx.eye.is_valid())
+        if (!frame.valid() || !global.enabled || !ctx.valid || !ctx.gun || !ctx.eye.is_valid())
+        {
+            m_last_recoil = {};
             return;
-        if (cfg.visible_only && !systems::g_tracing.ready())
-            return;
+        }
         const systems::local_player::data local = systems::g_local.get();
         if (!local.is_alive || !local.pawn)
+        {
+            m_last_recoil = {};
             return;
+        }
+
+        const settings::combat::legit& cfg = settings::legit_for(ctx.group);
+        const math::qangle recoil_now = detail::recoil(ctx);
+        const bool spraying = cfg.rcs && ctx.full_auto && ctx.shots_fired >= 1 && frame.really_held(cstypes::command_buttons::in_attack);
+        const math::qangle recoil_delta = spraying ? recoil_now - m_last_recoil : math::qangle{};
+        m_last_recoil = recoil_now;
 
         const math::qangle view = systems::g_view.original();
-        const math::qangle recoil = cfg.rcs ? detail::recoil(ctx) * cfg.rcs_scale : math::qangle{};
+        const math::qangle recoil = spraying ? recoil_now * cfg.rcs_scale : math::qangle{};
         const math::qangle reference = math::helpers::sanitized(view + recoil);
 
         bool found = false;
         aim_box best{};
-        const auto players = systems::g_entities.players();
-        for (const systems::entities::player& player : players)
+        if (keys::active(global.key) && (!cfg.visible_only || systems::g_tracing.ready()))
         {
-            if (!detail::valid_target(player, local.pawn, cfg.teammates))
-                continue;
-            if (!detail::in_fov_range(reference, ctx.eye, player.origin, cfg.fov))
-                continue;
-            aim_box next{};
-            if (!best_box(player, local.pawn, ctx.eye, reference, next))
-                continue;
-            if (!found || next.fov < best.fov)
+            const auto players = systems::g_entities.players();
+            for (const systems::entities::player& player : players)
             {
-                best = next;
-                found = true;
+                if (!detail::valid_target(player, local.pawn, cfg.teammates))
+                    continue;
+                if (!detail::in_fov_range(reference, ctx.eye, player.origin, cfg.fov))
+                    continue;
+                aim_box next{};
+                if (!best_box(cfg, player, local.pawn, ctx.eye, reference, next))
+                    continue;
+                if (!found || next.fov < best.fov)
+                {
+                    best = next;
+                    found = true;
+                }
             }
         }
+
         if (!found)
+        {
+            if (spraying && recoil_delta.is_valid() && (recoil_delta.x != 0.f || recoil_delta.y != 0.f))
+                systems::g_view.aim(math::helpers::sanitized(view - recoil_delta * cfg.rcs_scale), false, legit_priority, "rcs");
             return;
+        }
+
+        const bool randomize = cfg.randomization > 0 && keys::active(global.random_key) && (global.random_key.key != 0 || global.random_key.type == keys::mode::always);
+        const float amount = std::clamp(static_cast<float>(cfg.randomization) / 100.f, 0.f, 1.f);
+        if (randomize)
+        {
+            if (--m_random_ticks <= 0)
+            {
+                m_random_ticks = random_interval;
+                m_speed_scale = 1.f - amount * min_speed_drop * random01();
+                m_jitter = { (random01() - 0.5f) * 2.f * max_jitter * amount, (random01() - 0.5f) * 2.f * max_jitter * amount, 0.f };
+            }
+        }
+        else
+        {
+            m_speed_scale = 1.f;
+            m_jitter = {};
+            m_random_ticks = 0;
+        }
 
         const math::qangle target = math::helpers::calc_angle(ctx.eye, best.center) - recoil;
         math::qangle delta = target - view;
         math::helpers::normalize_angles(delta);
-        const float smooth = std::max(1.f, cfg.smooth);
-        systems::g_view.aim(math::helpers::sanitized(view + delta * (1.f / smooth)), false, legit_priority, "legit");
+        delta.z = 0.f;
+
+        const float speed = std::clamp(cfg.speed / 100.f, min_speed, 1.f);
+        const float factor = std::clamp(speed * m_speed_scale, min_speed * 0.1f, 1.f);
+        math::qangle step = delta;
+        if (speed < 1.f || factor < 1.f)
+        {
+            if (cfg.speed_mode == 0)
+            {
+                const float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+                const float limit = factor * linear_max_step;
+                if (length > limit && length > 0.f)
+                    step = delta * (limit / length);
+            }
+            else
+            {
+                step = delta * factor;
+            }
+        }
+        if (randomize)
+            step = step + m_jitter;
+        systems::g_view.aim(math::helpers::sanitized(view + step), false, legit_priority, "legit");
     }
 }

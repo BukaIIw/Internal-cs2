@@ -32,8 +32,27 @@ namespace settings
             hb_all = 0xFF
         };
 
+        enum weapon_group : int
+        {
+            wg_global,
+            wg_pistol,
+            wg_heavy_pistol,
+            wg_smg,
+            wg_rifle,
+            wg_shotgun,
+            wg_scout,
+            wg_awp,
+            wg_auto,
+            wg_machinegun,
+            wg_count
+        };
+
+        int weapon_group_of(std::uint16_t def);
+        const char* weapon_group_name(int group);
+
         struct rage
         {
+            bool override_global = false;
             bool enabled = false;
             keys::bind key{ 0, keys::mode::always };
             bool silent = true;
@@ -57,15 +76,18 @@ namespace settings
             bool prefer_body = false;
             bool nospread = false;
             bool teammates = false;
-            bool remove_recoil = true;
         };
 
         struct legit
         {
+            bool override_global = false;
             bool enabled = false;
             keys::bind key{ 1, keys::mode::hold };
             float fov = 4.f;
-            float smooth = 6.f;
+            float speed = 25.f;
+            int speed_mode = 0;
+            int randomization = 0;
+            keys::bind random_key{ 0, keys::mode::always };
             std::uint32_t hitboxes = hb_head;
             bool rcs = true;
             float rcs_scale = 1.f;
@@ -75,6 +97,7 @@ namespace settings
 
         struct trigger
         {
+            bool override_global = false;
             bool enabled = false;
             keys::bind key{ 6, keys::mode::hold };
             int delay = 0;
@@ -133,6 +156,8 @@ namespace settings
         float thirdperson_distance = 120.f;
         bool watermark = true;
         bool keybinds = true;
+        float keybinds_x = -1.f;
+        float keybinds_y = -1.f;
     };
 
     namespace changer
@@ -191,9 +216,18 @@ namespace settings
         keys::bind menu_key{ 0x2D, keys::mode::toggle };
     };
 
-    inline combat::rage g_rage{};
-    inline combat::legit g_legit{};
-    inline combat::trigger g_trigger{};
+    inline std::array<combat::rage, combat::wg_count> g_rage_groups{};
+    inline std::array<combat::legit, combat::wg_count> g_legit_groups{};
+    inline std::array<combat::trigger, combat::wg_count> g_trigger_groups{};
+    inline combat::rage& g_rage = g_rage_groups[combat::wg_global];
+    inline combat::legit& g_legit = g_legit_groups[combat::wg_global];
+    inline combat::trigger& g_trigger = g_trigger_groups[combat::wg_global];
+    inline int g_edit_group = combat::wg_global;
+    inline bool g_edit_follow_weapon = true;
+
+    const combat::rage& rage_for(int group);
+    const combat::legit& legit_for(int group);
+    const combat::trigger& trigger_for(int group);
     inline movement g_movement{};
     inline visuals g_visuals{};
     inline misc g_misc{};

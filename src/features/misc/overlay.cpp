@@ -1,6 +1,7 @@
 #include "misc.h"
 #include "../../core/keys.h"
 #include "../../core/settings.h"
+#include "../../ui/menu.h"
 #include "../../ui/render.h"
 #include "imgui.h"
 #include <algorithm>
@@ -17,6 +18,9 @@ namespace
     constexpr float min_list_width = 190.f;
     constexpr float column_gap = 16.f;
     constexpr int max_rows = 32;
+
+    bool g_dragging = false;
+    ImVec2 g_drag_offset{};
 
     struct bind_row
     {
@@ -103,7 +107,7 @@ namespace
             else
                 std::snprintf(row.key, sizeof(row.key), "[%s] %s", keys::key_name(b->key), mode_name(b->type));
         }
-        if (!count)
+        if (!count && !menu::open)
             return;
 
         float width = min_list_width;
@@ -111,7 +115,40 @@ namespace
             width = std::max(width, text_width(font, size, rows[i].name) + text_width(font, size, rows[i].key) + column_gap + padding * 2.f);
 
         const float line = size + 4.f;
-        const ImVec2 a(screen.x - margin - width, y), b(screen.x - margin, y + line * static_cast<float>(count + 1) + padding * 1.25f);
+        const float height = line * static_cast<float>(count + 1) + padding * 1.25f;
+        auto& cfg = settings::g_misc;
+        ImVec2 a(screen.x - margin - width, y);
+        if (cfg.keybinds_x >= 0.f && cfg.keybinds_y >= 0.f)
+            a = ImVec2(cfg.keybinds_x, cfg.keybinds_y);
+
+        const ImGuiIO& io = ImGui::GetIO();
+        if (menu::open)
+        {
+            const ImVec2 mouse = io.MousePos;
+            const bool hovered = mouse.x >= a.x && mouse.x <= a.x + width && mouse.y >= a.y && mouse.y <= a.y + line + padding;
+            if (!g_dragging && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow))
+            {
+                g_dragging = true;
+                g_drag_offset = ImVec2(mouse.x - a.x, mouse.y - a.y);
+            }
+            if (g_dragging)
+            {
+                if (io.MouseDown[ImGuiMouseButton_Left])
+                {
+                    a = ImVec2(std::clamp(mouse.x - g_drag_offset.x, 0.f, std::max(0.f, screen.x - width)), std::clamp(mouse.y - g_drag_offset.y, 0.f, std::max(0.f, screen.y - height)));
+                    cfg.keybinds_x = a.x;
+                    cfg.keybinds_y = a.y;
+                }
+                else
+                    g_dragging = false;
+            }
+        }
+        else
+            g_dragging = false;
+
+        a.x = std::clamp(a.x, 0.f, std::max(0.f, screen.x - width));
+        a.y = std::clamp(a.y, 0.f, std::max(0.f, screen.y - height));
+        const ImVec2 b(a.x + width, a.y + height);
         panel(draw, a, b);
 
         const char* title = "keybinds";

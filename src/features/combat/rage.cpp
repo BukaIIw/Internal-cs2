@@ -25,6 +25,7 @@ namespace
     constexpr int rage_priority = 2;
     constexpr int nospread_priority = 3;
     constexpr int scope_wait_ticks = 16;
+    constexpr int autostop_ticks = 2;
     constexpr float scope_release_when = 0.5f;
     constexpr float damage_tolerance = 1.f;
     constexpr float percent = 100.f;
@@ -141,9 +142,8 @@ namespace
         return out.damage > 0.f;
     }
 
-    candidate scan_target(const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const math::qangle& reference, float required, bool autowall, int& point_total)
+    candidate scan_target(const settings::combat::rage& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const math::qangle& reference, float required, bool autowall, int& point_total)
     {
-        const settings::combat::rage& cfg = settings::g_rage;
         candidate best{};
         if (!hitbox::collect(player.pawn, g_scan_boxes))
             return best;
@@ -201,19 +201,20 @@ namespace features::combat
 
     void rage::on_create_move(systems::input::frame& frame)
     {
-        const settings::combat::rage& cfg = settings::g_rage;
+        const settings::combat::rage& global = settings::g_rage;
         m_firing = false;
         m_stop = false;
         debug = {};
         g_state.nospread = false;
-        systems::g_view.smooth_silent = cfg.silent_smooth;
 
         if (g_state.scope_wait > 0)
             --g_state.scope_wait;
-        if (!frame.valid() || !keys::active(cfg.enabled, cfg.key))
+        if (!frame.valid() || !keys::active(global.enabled, global.key))
             return;
 
         const weapon_context& ctx = g_shared.ctx();
+        const settings::combat::rage& cfg = settings::rage_for(ctx.group);
+        systems::g_view.smooth_silent = cfg.silent_smooth;
         if (!ctx.valid || !ctx.gun || !ctx.eye.is_valid() || !systems::g_tracing.ready())
             return;
         const systems::local_player::data local = systems::g_local.get();
@@ -223,7 +224,7 @@ namespace features::combat
         const bool autowall = cfg.autowall && systems::g_tracing.bullets_ready();
         const math::qangle reference = systems::g_view.original();
         const math::qangle recoil = detail::recoil(ctx);
-        const int configured = override_active(cfg) ? cfg.damage_override : cfg.minimum_damage;
+        const int configured = override_active(global) ? cfg.damage_override : cfg.minimum_damage;
 
         const std::array<systems::entities::player, player_slots> players = systems::g_entities.players();
         std::array<scan_entry, player_slots> order{};
@@ -254,7 +255,7 @@ namespace features::combat
         {
             const systems::entities::player& player = players[order[i].slot];
             const float required = static_cast<float>(required_damage(configured, player.health));
-            const candidate next = scan_target(player, local.pawn, ctx, reference, required, autowall, point_total);
+            const candidate next = scan_target(cfg, player, local.pawn, ctx, reference, required, autowall, point_total);
             if (next.valid && better_target(next, best))
             {
                 best = next;
@@ -317,11 +318,12 @@ namespace features::combat
         }
 
         const math::qangle desired = math::helpers::sanitized(math::helpers::calc_angle(ctx.eye, point));
-        const math::qangle aim = cfg.remove_recoil ? math::helpers::sanitized(desired - recoil) : desired;
+        const math::qangle aim = math::helpers::sanitized(desired - recoil);
 
         const systems::prediction::state& pre = systems::g_prediction.pre();
         const std::uint32_t flags = pre.valid ? pre.flags : local.flags;
-        m_stop = cfg.autostop && (flags & cstypes::entity_flags::on_ground) != 0 && ctx.clip > 0 && (scoping || !pass);
+        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && ctx.ticks_to_fire <= autostop_ticks;
+        m_stop = cfg.autostop && (flags & cstypes::entity_flags::on_ground) != 0 && ready_soon;
 
         if (pass)
         {
@@ -337,7 +339,7 @@ namespace features::combat
         if (m_firing && nospread)
         {
             g_state.nospread = true;
-            g_state.desired = cfg.remove_recoil ? desired : math::helpers::sanitized(desired + recoil);
+            g_state.desired = desired;
             g_state.recoil = recoil;
         }
         debug.fired = m_firing;
@@ -358,7 +360,12 @@ namespace features::combat
             return;
         math::qangle angle{};
         if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+        {
             systems::g_view.aim(angle, true, nospread_priority, "nospread");
+            debug.nospread = 1;
+        }
+        else
+            debug.nospread = 2;
     }
 
     void rage::reset()

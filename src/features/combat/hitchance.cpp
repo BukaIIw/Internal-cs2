@@ -5,6 +5,7 @@
 #include "../../systems/tracing.h"
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -64,8 +65,10 @@ namespace features::combat::hitchance
         return aim_point->scan_settings->minimum_damage >= aim_point->scan_settings->target_health;
     }
 
-    static void run_hitchance_traces(hitchance_context_t* context, aim_point_t* aim_point, float spread_scale, hitchance_data_t* data)
+    static void run_hitchance_traces(hitchance_context_t* context, aim_point_t* aim_point, float spread_scale, hitchance_data_t* data, int needed = -1)
     {
+        int hits = 0;
+        int misses = 0;
         const request& in = *context->input;
         const weapon_context& weapon = g_shared.ctx();
         const vec3_t& shoot = *aim_point->shoot_position;
@@ -75,9 +78,14 @@ namespace features::combat::hitchance
             const vec2_t offset = context->spread_seeds[seed] * spread_scale;
             const vec3_t direction = normalize(data->forward + data->right * offset.x + data->up * offset.y);
             float distance = 0.f;
+            if (needed >= 0 && (hits >= needed || misses > 64 - needed))
+                break;
             const int index = hitbox::nearest(*in.boxes, shoot, direction, in.range, distance);
             if (index < 0)
+            {
+                ++misses;
                 continue;
+            }
             const vec3_t end = shoot + direction * distance;
             float damage = 0.f;
             if (in.penetration)
@@ -90,6 +98,10 @@ namespace features::combat::hitchance
             {
                 damage = detail::damage(weapon, *in.target, in.boxes->boxes[index].group, distance);
             }
+            if (damage >= aim_point->scan_settings->minimum_damage)
+                ++hits;
+            else
+                ++misses;
             if (!(damage > 0.f))
                 continue;
             const std::uint32_t bit = 1u << (seed & 31);
@@ -244,8 +256,9 @@ static bool force_shot(
             return out;
         }
 
+        const int needed = std::clamp(static_cast<int>(std::ceil(threshold * 64.f - 0.001f)), 0, 64);
         hitchance_data_t data{};
-        run_hitchance_traces(&context, &aim_point, 1.0f, &data);
+        run_hitchance_traces(&context, &aim_point, 1.0f, &data, needed);
         out.chance = calculate_hitchance(data, settings.minimum_damage);
         out.pass = out.chance >= threshold;
         out.point = aim_point.position;

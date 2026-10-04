@@ -41,6 +41,7 @@ namespace systems
         math::qangle m_original{};
         request m_request{};
         bool m_fire = false;
+        bool m_hold = false;
         bool m_block_fire = false;
         float m_fire_when = 0.f;
         bool m_last_fired = false;

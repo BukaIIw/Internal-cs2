@@ -11,6 +11,7 @@ namespace
 {
     constexpr float min_stop_speed = 15.f;
     constexpr float min_forced_speed = 1.f;
+    constexpr float hard_stop_scale = 0.25f;
 }
 
 namespace features::movement
@@ -53,7 +54,7 @@ namespace features::movement
 
         math::vector2 move{};
         if (speed > min_forced_speed)
-            move = detail::stop_move(frame.view().y, velocity, detail::weapon_max_speed());
+            move = detail::stop_move(frame.view().y, velocity, forced ? detail::weapon_max_speed() * hard_stop_scale : detail::weapon_max_speed());
 
         detail::set_constant_move(frame, move.x, move.y);
     }

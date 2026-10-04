@@ -8,6 +8,7 @@
 #include "../../core/memory.h"
 #include "../../core/patterns.h"
 #include "../../core/schema.h"
+#include "../../core/settings.h"
 #include "../../systems/game_reads.h"
 #include "../../systems/local.h"
 #include "../../systems/prediction.h"
@@ -162,6 +163,7 @@ namespace features::combat
         ctx.weapon = weapon;
         ctx.vdata = vdata;
         ctx.def = local.weapon_def;
+        ctx.group = settings::combat::weapon_group_of(ctx.def);
 
         const int type = reads::field<int>(vdata, SCHEMA("CCSWeaponBaseVData", "m_WeaponType"_hash), local.weapon_type);
         ctx.type = type >= cstypes::weapon_type::knife && type <= cstypes::weapon_type::equipment ? type : local.weapon_type;
@@ -183,9 +185,11 @@ namespace features::combat
 
         ctx.clip = reads::field<int>(weapon, SCHEMA("C_BasePlayerWeapon", "m_iClip1"_hash));
         const int next_attack = reads::field<int>(weapon, SCHEMA("C_BasePlayerWeapon", "m_nNextPrimaryAttackTick"_hash));
-        const bool reloading = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBase", "m_bInReload"_hash)) != 0;
+        ctx.reloading = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBase", "m_bInReload"_hash)) != 0;
         const int tick_base = pre.valid && pre.tick_base > 0 ? pre.tick_base : local.tick_base;
-        ctx.can_fire = ctx.gun && ctx.clip > 0 && next_attack <= tick_base && !reloading;
+        ctx.ticks_to_fire = std::max(0, next_attack - tick_base);
+        ctx.can_fire = ctx.gun && ctx.clip > 0 && next_attack <= tick_base && !ctx.reloading;
+        ctx.shots_fired = std::max(0, reads::field<int>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_iShotsFired"_hash)));
 
         const convars::convar* nospread = CONVAR("weapon_accuracy_nospread");
         if (nospread->value && nospread->get<bool>())

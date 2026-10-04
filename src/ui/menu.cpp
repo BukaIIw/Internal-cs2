@@ -104,19 +104,42 @@ namespace
         return ui::flags(label, mask, hitbox_names, hitbox_bits, hitbox_count);
     }
 
+    void weapon_group_card(bool* override_flag)
+    {
+        using namespace settings::combat;
+        if (settings::g_edit_follow_weapon)
+        {
+            const auto& ctx = features::combat::g_shared.ctx();
+            if (ctx.valid && ctx.gun)
+                settings::g_edit_group = ctx.group;
+        }
+        settings::g_edit_group = std::clamp(settings::g_edit_group, 0, static_cast<int>(wg_count) - 1);
+        const char* names[wg_count]{};
+        for (int i = 0; i < wg_count; ++i)
+            names[i] = weapon_group_name(i);
+        ui::begin_card("Weapon##group", icon::Sliders);
+        ui::combo("Config##group", &settings::g_edit_group, names, wg_count);
+        ui::toggle("Follow current weapon", &settings::g_edit_follow_weapon);
+        if (override_flag && settings::g_edit_group != wg_global)
+            ui::toggle("Override global", override_flag);
+        ui::end_card();
+    }
+
     void rage_page()
     {
-        auto& rage = settings::g_rage;
+        auto& global = settings::g_rage;
+        auto& rage = settings::g_rage_groups[std::clamp(settings::g_edit_group, 0, static_cast<int>(settings::combat::wg_count) - 1)];
         if (!ui::begin_columns("##rage"))
             return;
         ui::next_column();
+        weapon_group_card(&rage.override_global);
         ui::begin_card("Ragebot", icon::Target);
-        ui::feature("Enabled##rage", &rage.enabled, &rage.key);
+        ui::feature("Enabled##rage", &global.enabled, &global.key);
         ui::slider("Field of view##rage", &rage.fov, 1.f, 180.f, "%.0f\xC2\xB0");
         ui::slider("Hit chance##rage", &rage.hitchance, 0, 100, "%d%%");
         ui::slider("Minimum damage##rage", &rage.minimum_damage, 1, 120, "%d hp");
         ui::slider("Damage override##rage", &rage.damage_override, 1, 120, "%d hp");
-        ui::key_button("Override key", &rage.damage_override_key);
+        ui::key_button("Override key", &global.damage_override_key);
         ui::end_card();
 
         ui::begin_card("Hitboxes##rage", icon::Target);
@@ -135,7 +158,6 @@ namespace
         ui::toggle("Autowall", &rage.autowall);
         ui::toggle("Autostop", &rage.autostop);
         ui::toggle("Autoscope", &rage.autoscope);
-        ui::toggle("Remove recoil", &rage.remove_recoil);
         ui::toggle("No spread", &rage.nospread);
         ui::end_card();
 
@@ -157,21 +179,37 @@ namespace
         ui::value("Damage", "%.0f", debug.damage);
         ui::value("Hit chance", "%.0f%%", debug.hitchance);
         ui::value("Fired", "%s", debug.fired ? "yes" : "no");
+        ui::value("No spread", "%s", debug.nospread == 1 ? "ok" : debug.nospread == 2 ? "failed" : "-");
         ui::end_card();
         ui::end_columns();
     }
 
     void legit_page()
     {
-        auto& legit = settings::g_legit;
-        auto& trigger = settings::g_trigger;
+        const int group = std::clamp(settings::g_edit_group, 0, static_cast<int>(settings::combat::wg_count) - 1);
+        auto& global_legit = settings::g_legit;
+        auto& global_trigger = settings::g_trigger;
+        auto& legit = settings::g_legit_groups[group];
+        auto& trigger = settings::g_trigger_groups[group];
         if (!ui::begin_columns("##legit"))
             return;
         ui::next_column();
+        weapon_group_card(nullptr);
+        if (group != settings::combat::wg_global)
+        {
+            ui::begin_card("Override##legit_group", icon::Sliders);
+            ui::toggle("Override aimbot", &legit.override_global);
+            ui::toggle("Override triggerbot", &trigger.override_global);
+            ui::end_card();
+        }
+        static const char* const speed_modes[]{ "Linear", "Exponential" };
         ui::begin_card("Aimbot##legit", icon::Target);
-        ui::feature("Enabled##legit", &legit.enabled, &legit.key);
+        ui::feature("Enabled##legit", &global_legit.enabled, &global_legit.key);
         ui::slider("Field of view##legit", &legit.fov, 0.5f, 30.f, "%.1f\xC2\xB0");
-        ui::slider("Smoothing##legit", &legit.smooth, 1.f, 30.f, "%.1f");
+        ui::slider("Speed##legit", &legit.speed, 1.f, 100.f, "%.0f%%");
+        ui::combo("Speed mode##legit", &legit.speed_mode, speed_modes, 2);
+        ui::slider("Randomization##legit", &legit.randomization, 0, 100, "%d%%");
+        ui::key_button("Randomization key", &global_legit.random_key);
         hitbox_flags("Hitboxes##legit", &legit.hitboxes);
         ui::toggle("Visible only##legit", &legit.visible_only);
         ui::toggle("Teammates##legit", &legit.teammates);
@@ -184,7 +222,7 @@ namespace
 
         ui::next_column();
         ui::begin_card("Triggerbot", icon::Target);
-        ui::feature("Enabled##trigger", &trigger.enabled, &trigger.key);
+        ui::feature("Enabled##trigger", &global_trigger.enabled, &global_trigger.key);
         ui::slider("Delay##trigger", &trigger.delay, 0, 300, "%d ms");
         ui::slider("Minimum damage##trigger", &trigger.minimum_damage, 1, 100, "%d hp");
         ui::slider("Hit chance##trigger", &trigger.hitchance, 0, 100, "%d%%");

@@ -14,6 +14,8 @@ namespace features::movement
 
     private:
         bool m_active_this_tick = false;
+        bool m_ducking = false;
+        bool m_release_jump = false;
         float m_landing_fraction = 0.f;
     };
 

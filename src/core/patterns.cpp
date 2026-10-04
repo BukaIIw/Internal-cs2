@@ -140,7 +140,7 @@ namespace patterns
     const ::addresses::entry weapon_update_accuracy{ "weapon_update_accuracy", "client.dll:405741564883EC68488BF9E8????????4C8BF04885C0" };
     const ::addresses::entry weapon_update_composite_material{ "weapon_update_composite_material", "client.dll:48895C241048896C2418488974242057415641574883EC20440FB6F2488BF9" };
     const ::addresses::entry weapon_update_mesh{ "weapon_update_mesh", "client.dll:405556574154415541564157B8F01000" };
-    const ::addresses::entry weapon_update_skin{ "weapon_update_skin", "client.dll:4055534157488DAC2400FEFFFF4881EC00030000488B05????????440FB6FA488BD9" };
+    const ::addresses::entry weapon_update_skin{ "weapon_update_skin", "client.dll:488D8B????????B201E8????????33D2488BCB>E8" };
     const ::addresses::entry econ_item_view_set_attribute{ "econ_item_view_set_attribute", "client.dll:40534883EC20488BD94881C108020000" };
     const ::addresses::entry econ_item_view_remove_attribute{ "econ_item_view_remove_attribute", "client.dll:40534883EC20486381????????440FB7CA" };
     const ::addresses::entry econ_item_view_invalidate_description{ "econ_item_view_invalidate_description", "client.dll:48895C24??48897424??574883EC20488DB9????????488BF1" };

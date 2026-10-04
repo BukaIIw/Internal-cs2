@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -35,6 +36,19 @@ namespace
     constexpr std::size_t max_file_size = 4u << 20;
 
     std::vector<variable> g_variables;
+    std::deque<std::string> g_key_storage;
+
+    const char* group_key(const char* prefix, const char* name)
+    {
+        if (!prefix)
+            return name;
+        g_key_storage.push_back(std::string(prefix) + name);
+        return g_key_storage.back().c_str();
+    }
+
+    constexpr const char* group_prefixes[settings::combat::wg_count] = {
+        nullptr, "w.pistol.", "w.heavy_pistol.", "w.smg.", "w.rifle.", "w.shotgun.", "w.scout.", "w.awp.", "w.auto.", "w.machinegun."
+    };
     std::mutex g_registry_mutex;
     std::mutex g_io_mutex;
 
@@ -557,52 +571,149 @@ std::int16_t settings::changer_settings::glove(int team) const
     return 0;
 }
 
+int settings::combat::weapon_group_of(std::uint16_t def)
+{
+    switch (def)
+    {
+    case 2:
+    case 3:
+    case 4:
+    case 30:
+    case 32:
+    case 36:
+    case 61:
+    case 63:
+        return wg_pistol;
+    case 1:
+    case 64:
+        return wg_heavy_pistol;
+    case 17:
+    case 19:
+    case 23:
+    case 24:
+    case 26:
+    case 33:
+    case 34:
+        return wg_smg;
+    case 7:
+    case 8:
+    case 10:
+    case 13:
+    case 16:
+    case 39:
+    case 60:
+        return wg_rifle;
+    case 25:
+    case 27:
+    case 29:
+    case 35:
+        return wg_shotgun;
+    case 40:
+        return wg_scout;
+    case 9:
+        return wg_awp;
+    case 11:
+    case 38:
+        return wg_auto;
+    case 14:
+    case 28:
+        return wg_machinegun;
+    default:
+        return wg_global;
+    }
+}
+
+const char* settings::combat::weapon_group_name(int group)
+{
+    static constexpr const char* names[wg_count] = { "Global", "Pistols", "Deagle / R8", "SMG", "Rifles", "Shotguns", "Scout", "AWP", "Auto snipers", "Machine guns" };
+    return group >= 0 && group < wg_count ? names[group] : names[wg_global];
+}
+
+const settings::combat::rage& settings::rage_for(int group)
+{
+    if (group > combat::wg_global && group < combat::wg_count && g_rage_groups[static_cast<std::size_t>(group)].override_global)
+        return g_rage_groups[static_cast<std::size_t>(group)];
+    return g_rage;
+}
+
+const settings::combat::legit& settings::legit_for(int group)
+{
+    if (group > combat::wg_global && group < combat::wg_count && g_legit_groups[static_cast<std::size_t>(group)].override_global)
+        return g_legit_groups[static_cast<std::size_t>(group)];
+    return g_legit;
+}
+
+const settings::combat::trigger& settings::trigger_for(int group)
+{
+    if (group > combat::wg_global && group < combat::wg_count && g_trigger_groups[static_cast<std::size_t>(group)].override_global)
+        return g_trigger_groups[static_cast<std::size_t>(group)];
+    return g_trigger;
+}
+
 void settings::register_all()
 {
     std::lock_guard lock(g_registry_mutex);
 
     add("rage.enabled", g_rage.enabled);
     add("bind.rage", g_rage.key, "Ragebot");
-    add("rage.silent", g_rage.silent);
-    add("rage.silent_smooth", g_rage.silent_smooth);
-    add("rage.autofire", g_rage.autofire);
-    add("rage.autowall", g_rage.autowall);
-    add("rage.autostop", g_rage.autostop);
-    add("rage.autoscope", g_rage.autoscope);
-    add("rage.fov", g_rage.fov);
-    add("rage.hitboxes", g_rage.hitboxes);
-    add("rage.multipoint", g_rage.multipoint);
-    add("hitbox.head_scale", g_rage.head_scale);
-    add("hitbox.body_scale", g_rage.body_scale);
-    add("rage.hitchance", g_rage.hitchance);
-    add("rage.min_damage", g_rage.minimum_damage);
     add("bind.damage_override", g_rage.damage_override_key, "Damage override");
-    add("rage.damage_override", g_rage.damage_override);
-    add("rage.force_shot", g_rage.force_shot);
-    add("rage.force_shot_iterations", g_rage.force_shot_iterations);
-    add("rage.force_shot_min_spread", g_rage.force_shot_min_spread);
-    add("hitbox.prefer_body", g_rage.prefer_body);
-    add("nospread.enabled", g_rage.nospread);
-    add("rage.teammates", g_rage.teammates);
-    add("rage.remove_recoil", g_rage.remove_recoil);
-
     add("aim.legit", g_legit.enabled);
     add("bind.legit", g_legit.key, "Legitbot");
-    add("aim.legit_fov", g_legit.fov);
-    add("aim.legit_smooth", g_legit.smooth);
-    add("legit.hitboxes", g_legit.hitboxes);
-    add("aim.legit_rcs", g_legit.rcs);
-    add("legit.rcs_scale", g_legit.rcs_scale);
-    add("legit.visible_only", g_legit.visible_only);
-    add("legit.teammates", g_legit.teammates);
-
+    add("bind.legit_random", g_legit.random_key, "Aim randomization");
     add("aim.trigger", g_trigger.enabled);
     add("bind.trigger", g_trigger.key, "Triggerbot");
-    add("aim.trigger_delay", g_trigger.delay);
-    add("trigger.hitboxes", g_trigger.hitboxes);
-    add("aim.trigger_min_damage", g_trigger.minimum_damage);
-    add("trigger.hitchance", g_trigger.hitchance);
-    add("trigger.teammates", g_trigger.teammates);
+    add("weapons.follow", g_edit_follow_weapon);
+
+    for (int group = combat::wg_global; group < combat::wg_count; ++group)
+    {
+        const char* prefix = group_prefixes[group];
+        auto& rage = g_rage_groups[static_cast<std::size_t>(group)];
+        auto& legit = g_legit_groups[static_cast<std::size_t>(group)];
+        auto& trigger = g_trigger_groups[static_cast<std::size_t>(group)];
+        if (prefix)
+        {
+            add(group_key(prefix, "rage.override"), rage.override_global);
+            add(group_key(prefix, "legit.override"), legit.override_global);
+            add(group_key(prefix, "trigger.override"), trigger.override_global);
+        }
+
+        add(group_key(prefix, "rage.silent"), rage.silent);
+        add(group_key(prefix, "rage.silent_smooth"), rage.silent_smooth);
+        add(group_key(prefix, "rage.autofire"), rage.autofire);
+        add(group_key(prefix, "rage.autowall"), rage.autowall);
+        add(group_key(prefix, "rage.autostop"), rage.autostop);
+        add(group_key(prefix, "rage.autoscope"), rage.autoscope);
+        add(group_key(prefix, "rage.fov"), rage.fov);
+        add(group_key(prefix, "rage.hitboxes"), rage.hitboxes);
+        add(group_key(prefix, "rage.multipoint"), rage.multipoint);
+        add(group_key(prefix, "hitbox.head_scale"), rage.head_scale);
+        add(group_key(prefix, "hitbox.body_scale"), rage.body_scale);
+        add(group_key(prefix, "rage.hitchance"), rage.hitchance);
+        add(group_key(prefix, "rage.min_damage"), rage.minimum_damage);
+        add(group_key(prefix, "rage.damage_override"), rage.damage_override);
+        add(group_key(prefix, "rage.force_shot"), rage.force_shot);
+        add(group_key(prefix, "rage.force_shot_iterations"), rage.force_shot_iterations);
+        add(group_key(prefix, "rage.force_shot_min_spread"), rage.force_shot_min_spread);
+        add(group_key(prefix, "hitbox.prefer_body"), rage.prefer_body);
+        add(group_key(prefix, "nospread.enabled"), rage.nospread);
+        add(group_key(prefix, "rage.teammates"), rage.teammates);
+
+        add(group_key(prefix, "aim.legit_fov"), legit.fov);
+        add(group_key(prefix, "aim.legit_speed"), legit.speed);
+        add(group_key(prefix, "aim.legit_speed_mode"), legit.speed_mode);
+        add(group_key(prefix, "aim.legit_randomization"), legit.randomization);
+        add(group_key(prefix, "legit.hitboxes"), legit.hitboxes);
+        add(group_key(prefix, "aim.legit_rcs"), legit.rcs);
+        add(group_key(prefix, "legit.rcs_scale"), legit.rcs_scale);
+        add(group_key(prefix, "legit.visible_only"), legit.visible_only);
+        add(group_key(prefix, "legit.teammates"), legit.teammates);
+
+        add(group_key(prefix, "aim.trigger_delay"), trigger.delay);
+        add(group_key(prefix, "trigger.hitboxes"), trigger.hitboxes);
+        add(group_key(prefix, "aim.trigger_min_damage"), trigger.minimum_damage);
+        add(group_key(prefix, "trigger.hitchance"), trigger.hitchance);
+        add(group_key(prefix, "trigger.teammates"), trigger.teammates);
+    }
 
     add("movement.bhop", g_movement.bhop);
     add("bind.bhop", g_movement.bhop_key, "Bunnyhop");
@@ -644,6 +755,8 @@ void settings::register_all()
     add("camera.distance", g_misc.thirdperson_distance);
     add("overlay.watermark", g_misc.watermark);
     add("overlay.keybinds", g_misc.keybinds);
+    add("overlay.keybinds_x", g_misc.keybinds_x);
+    add("overlay.keybinds_y", g_misc.keybinds_y);
 
     add("skins.enabled", g_changer.enabled);
     add("skins.knife_animations", g_changer.knife_animations);

@@ -18,6 +18,10 @@ namespace features::combat
         bool scoped = false;
         bool needs_scope = false;
         bool can_fire = false;
+        bool reloading = false;
+        int ticks_to_fire = 0;
+        int shots_fired = 0;
+        int group = 0;
         int clip = 0;
         int bullets = 1;
         int mode = 0;
@@ -58,6 +62,7 @@ namespace features::combat
         struct debug_info
         {
             bool target = false;
+            int nospread = 0;
             int hitgroup = -1;
             int points = 0;
             float damage = 0.f;
@@ -75,6 +80,12 @@ namespace features::combat
     {
     public:
         void on_create_move(systems::input::frame& frame);
+
+    private:
+        math::qangle m_last_recoil{};
+        math::qangle m_jitter{};
+        float m_speed_scale = 1.f;
+        int m_random_ticks = 0;
     };
 
     class trigger

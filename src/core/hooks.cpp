@@ -135,6 +135,8 @@ namespace
     std::uintptr_t g_captured_cmd = 0;
     int g_captured_sequence = INT_MIN;
     std::uint64_t g_real_buttons = 0;
+    systems::input::subtick_input* g_merged_data = nullptr;
+    std::uint64_t g_merged_down = 0;
 
     struct render_state
     {
@@ -453,9 +455,17 @@ namespace
 
         g_captured_cmd = 0;
         g_captured_sequence = INT_MIN;
+        g_merged_data = nullptr;
         g_create_move_thread.store(GetCurrentThreadId());
         void* result = o_create_move(input, slot, active);
         g_create_move_thread.store(0);
+        if (g_merged_data)
+        {
+            auto* merged = g_merged_data;
+            const std::uint64_t down = g_merged_down;
+            seh([&] { merged->down = down; });
+            g_merged_data = nullptr;
+        }
 
         process_cmd(reinterpret_cast<std::uintptr_t>(input));
         return result;
@@ -477,6 +487,8 @@ namespace
 
         if (frames > 0)
             g_real_buttons = data->down | data->pressed;
+        g_merged_data = data;
+        g_merged_down = data->down;
 
         const auto local = systems::g_local.get();
         if (!run(g_prediction_gate, [&] { systems::g_prediction.update(local.controller, local.pawn, last); }))
