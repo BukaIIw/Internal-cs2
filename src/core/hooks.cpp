@@ -57,7 +57,6 @@ namespace
     using camera_think_fn = void(__fastcall*)(void*, int);
     using draw_scene_object_fn = void(__fastcall*)(void*, void*, std::uint8_t*, int, void*, void*, void*, void*);
     using is_glowing_fn = bool(__fastcall*)(void*);
-    using get_glow_color_fn = void(__fastcall*)(void*, float*);
 
     present_fn o_present = nullptr;
     resize_buffers_fn o_resize_buffers = nullptr;
@@ -69,7 +68,6 @@ namespace
     camera_think_fn o_camera_think = nullptr;
     draw_scene_object_fn o_draw_scene_object = nullptr;
     is_glowing_fn o_is_glowing = nullptr;
-    get_glow_color_fn o_get_glow_color = nullptr;
 
     std::atomic<int> g_in_flight{ 0 };
 
@@ -94,6 +92,7 @@ namespace
     fault_gate g_cmd_gate{ "User command lookup", false };
     fault_gate g_commit_gate{ "User command commit", true };
     fault_gate g_camera_gate{ "Thirdperson camera", true };
+    fault_gate g_camera_restore_gate{ "Thirdperson camera restore", false };
     fault_gate g_chams_gate{ "Chams draw", true };
     fault_gate g_glow_gate{ "Glow override", true };
 
@@ -471,8 +470,8 @@ namespace
 
         o_camera_think(input, slot);
 
-        if (restore && !seh([&] { features::misc::g_thirdperson.after_camera_think(address, slot); }))
-            logs::Add(logs::Error, "Thirdperson camera restore faulted");
+        if (restore && !run(g_camera_restore_gate, [&] { features::misc::g_thirdperson.after_camera_think(address, slot); }))
+            g_camera_gate.disabled.store(true, std::memory_order_relaxed);
     }
 
     void __fastcall hk_draw_scene_object(void* desc, void* ctx, std::uint8_t* meshes, int count, void* view, void* layer, void* a7, void* a8)
@@ -499,19 +498,6 @@ namespace
         if (!run(g_glow_gate, [&] { result = features::visuals::g_glow.override_glow(address, original); }))
             return original;
         return result;
-    }
-
-    void __fastcall hk_get_glow_color(void* property, float* rgba)
-    {
-        in_flight guard;
-        o_get_glow_color(property, rgba);
-        if (hooks::unloading.load() || !property || !rgba || !settings::g_visuals.glow)
-            return;
-        const auto out = reinterpret_cast<std::uintptr_t>(rgba);
-        if (!memory::is_readable(out, sizeof(float) * 4))
-            return;
-        const auto address = reinterpret_cast<std::uintptr_t>(property);
-        run(g_glow_gate, [&] { features::visuals::g_glow.override_color(address, rgba); });
     }
 
     bool is_input_message(UINT msg)
@@ -913,7 +899,6 @@ namespace
         create("DrawSceneObject", draw, &hk_draw_scene_object, o_draw_scene_object, false);
 
         create("IsGlowing", in_module("client.dll", PATTERN(patterns::is_glowing)), &hk_is_glowing, o_is_glowing, false);
-        create("GetGlowColor", in_module("client.dll", PATTERN(patterns::get_glow_color)), &hk_get_glow_color, o_get_glow_color, false);
     }
 
     bool drain()
