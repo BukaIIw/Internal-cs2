@@ -94,7 +94,6 @@ namespace patterns
     const ::addresses::entry process_input_event{ "process_input_event", "client.dll:CCCC48895C2408574883EC20C6410800488D05*????????488901488BD9+20~" };
     const ::addresses::entry read_frame_input{ "read_frame_input", "client.dll:>E8????????4D8BC58BD3" };
     const ::addresses::entry remove_entity{ "remove_entity", "client.dll:488D05*????????48890733D24088B728210000+80~" };
-    const ::addresses::entry render_crosshair{ "render_crosshair", "client.dll:488BC844886C2430>E8????????84C00F84????????" };
     const ::addresses::entry render_decals{ "render_decals", "client.dll:44884C2420555341544155488D6C24??4881EC????????4C8B15????????4C8BEA4C8BE1" };
     const ::addresses::entry render_game_system_storage{ "render_game_system_storage", "client.dll:488B0D*????????418BD6E8????????418B5F" };
     const ::addresses::entry render_scope{ "render_scope", "client.dll:488BC453574883EC68488BFA" };
@@ -140,7 +139,7 @@ namespace patterns
     const ::addresses::entry weapon_update_accuracy{ "weapon_update_accuracy", "client.dll:405741564883EC68488BF9E8????????4C8BF04885C0" };
     const ::addresses::entry weapon_update_composite_material{ "weapon_update_composite_material", "client.dll:48895C241048896C2418488974242057415641574883EC20440FB6F2488BF9" };
     const ::addresses::entry weapon_update_mesh{ "weapon_update_mesh", "client.dll:405556574154415541564157B8F01000" };
-    const ::addresses::entry weapon_update_skin{ "weapon_update_skin", "client.dll:488D8B????????B201E8????????33D2488BCB>E8" };
+    const ::addresses::entry weapon_update_skin{ "weapon_update_skin", "client.dll:488D8B????????B201E8????????33D2488BCB>E8????????" };
     const ::addresses::entry econ_item_view_set_attribute{ "econ_item_view_set_attribute", "client.dll:40534883EC20488BD94881C108020000" };
     const ::addresses::entry econ_item_view_remove_attribute{ "econ_item_view_remove_attribute", "client.dll:40534883EC20486381????????440FB7CA" };
     const ::addresses::entry econ_item_view_invalidate_description{ "econ_item_view_invalidate_description", "client.dll:48895C24??48897424??574883EC20488DB9????????488BF1" };
@@ -180,7 +179,7 @@ namespace patterns
     const ::addresses::entry trace_shape{ "trace_shape", "client.dll:488954241048894C240855535657415441564157488DAC24????????B8????????E8????????482BE0" };
     const ::addresses::entry game_trace_manager_legacy{ "game_trace_manager_legacy", "client.dll:4C8B3D*????????24C90C49660F7F45" };
     const ::addresses::entry set_view_angles_full{ "set_view_angles_full", "client.dll:85D2753D486381500B0000F2410F1000" };
-    const ::addresses::entry entity_list_legacy{ "entity_list_legacy", "client.dll:488B0D*????????4885C974??4183F8FE" };
+    const ::addresses::entry entity_list_legacy{ "entity_list_legacy", "client.dll:4183F8FF7463488B0D*????????4885C974574183F8FE" };
     const ::addresses::entry view_matrix_fn{ "view_matrix_fn", "client.dll:4863C1488D0D????????48C1E0064803C1C3" };
     const ::addresses::entry get_aim_punch_fn{ "get_aim_punch_fn", "client.dll:488BC4488958104889681848897020574883EC70488BEA410FB6F0" };
     const ::addresses::entry weapon_composite_offset{ "weapon_composite_offset", "client.dll:488D8B????????B201E8????????33D2488BCBE8" };
@@ -280,7 +279,6 @@ namespace patterns
             &process_input_event,
             &read_frame_input,
             &remove_entity,
-            &render_crosshair,
             &render_decals,
             &render_game_system_storage,
             &render_scope,

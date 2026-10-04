@@ -81,7 +81,7 @@ namespace features::combat
         if (m_release)
         {
             m_release = false;
-            if (!systems::g_view.firing())
+            if (!systems::g_view.firing() && !systems::g_view.user_attack())
             {
                 cmd.buttons() &= ~attack;
                 cmd.buttons_changed() |= attack;

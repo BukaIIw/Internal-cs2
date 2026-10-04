@@ -96,7 +96,6 @@ namespace patterns
     extern const ::addresses::entry process_input_event;
     extern const ::addresses::entry read_frame_input;
     extern const ::addresses::entry remove_entity;
-    extern const ::addresses::entry render_crosshair;
     extern const ::addresses::entry render_decals;
     extern const ::addresses::entry render_game_system_storage;
     extern const ::addresses::entry render_scope;

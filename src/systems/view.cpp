@@ -15,6 +15,7 @@ namespace
 
     bool g_tick_open = false;
     bool g_user_attack = false;
+    bool g_user_press = false;
     bool g_frame_aimed = false;
 
     bool revolver()
@@ -43,6 +44,18 @@ namespace
                 return event;
         }
         return nullptr;
+    }
+
+    bool has_press(systems::input::frame& frame)
+    {
+        const int count = frame.step_count();
+        for (int i = 0; i < count; ++i)
+        {
+            const systems::input::subtick_event* event = frame.step(i);
+            if (event && (event->button & attack) && event->pressed)
+                return true;
+        }
+        return false;
     }
 
     void write_event_angles(systems::input::frame& frame, systems::input::subtick_event& event, const math::qangle& angle)
@@ -80,6 +93,7 @@ namespace systems
         m_fire_when = 0.f;
         g_frame_aimed = false;
         g_user_attack = frame.valid() && frame.really_held(attack);
+        g_user_press = g_user_attack && frame.held(attack) && (has_press(frame) || features::combat::g_shared.ctx().full_auto);
         math::qangle original = frame.valid() ? frame.view() : g_input.get_view_angles();
         m_original = original.is_valid() ? math::helpers::sanitized(original) : math::qangle{};
         g_tick_open = true;
@@ -128,6 +142,22 @@ namespace systems
         {
             if (m_cock && !m_block_fire && !frame.held(attack))
                 frame.press(attack, 0.f);
+            return;
+        }
+
+        if (g_user_press && !m_hold)
+        {
+            if (m_request.active && (!m_request.silent || event_angles_follow_aim()))
+            {
+                const int steps = frame.step_count();
+                for (int i = 0; i < steps; ++i)
+                {
+                    input::subtick_event* event = frame.step(i);
+                    if (event && (event->button & attack) && event->pressed)
+                        write_event_angles(frame, *event, m_request.angle);
+                }
+            }
+            m_applied_attack = true;
             return;
         }
 
@@ -181,7 +211,16 @@ namespace systems
             }
         }
 
-        if (m_fire)
+        if (m_fire && g_user_press && !m_hold)
+        {
+            if (m_render_tick > 0)
+            {
+                for (int i = 0; i < count; ++i)
+                    cmd.set_history_render_tick(i, m_render_tick);
+            }
+            m_applied_attack = true;
+        }
+        else if (m_fire)
         {
             cmd.buttons() |= attack;
             cmd.buttons_changed() |= attack;
@@ -206,6 +245,11 @@ namespace systems
             cmd.buttons() &= ~attack;
             cmd.buttons_changed() &= ~attack;
         }
+    }
+
+    bool view::user_attack() const
+    {
+        return g_user_press;
     }
 
     void view::end()

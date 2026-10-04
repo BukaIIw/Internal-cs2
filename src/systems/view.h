@@ -30,6 +30,7 @@ namespace systems
         const request& current() const { return m_request; }
         float fire_when() const { return m_fire_when; }
         bool last_tick_fired() const { return m_last_fired; }
+        bool user_attack() const;
 
         void apply(input::frame& frame);
         void apply(input::usercmd& cmd);
