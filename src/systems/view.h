@@ -4,6 +4,8 @@
 
 namespace systems
 {
+    constexpr float default_fire_when = 0.98f;
+
     class view
     {
     public:

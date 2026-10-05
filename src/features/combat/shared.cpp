@@ -12,6 +12,7 @@
 #include "../../systems/game_reads.h"
 #include "../../systems/local.h"
 #include "../../systems/prediction.h"
+#include "../../systems/view.h"
 #include <Windows.h>
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,8 @@ namespace
     constexpr float armor_bonus = 0.5f;
     constexpr float max_convar_scale = 10.f;
     constexpr float max_eye_drift = 16.f;
+    constexpr float default_gravity = 800.f;
+    constexpr float max_subtick_speed = 3500.f;
 
     struct shoot_timestamp
     {
@@ -68,6 +71,25 @@ namespace
         if (!call_shoot_position(function, pawn, &stamp, &out) || !out.is_valid() || out.distance(fallback) > max_eye_drift)
             return fallback;
         return out;
+    }
+
+    math::vector3 subtick_eye(const math::vector3& eye, const systems::prediction::state& pre, float fraction)
+    {
+        const math::vector3& velocity = pre.networked_velocity;
+        if (!pre.valid || !eye.is_valid() || !velocity.is_valid() || velocity.length() > max_subtick_speed)
+            return eye;
+        const float t = cstypes::tick_interval * std::clamp(fraction, 0.f, 1.f);
+        math::vector3 out{ eye.x + velocity.x * t, eye.y + velocity.y * t, eye.z };
+        if (!(pre.flags & cstypes::entity_flags::on_ground))
+        {
+            const convars::convar* var = CONVAR("sv_gravity");
+            float gravity = var && var->value ? var->get<float>() : default_gravity;
+            if (!std::isfinite(gravity) || gravity <= 0.f)
+                gravity = default_gravity;
+            gravity *= pre.gravity_scale;
+            out.z += velocity.z * t - 0.5f * gravity * t * t;
+        }
+        return out.is_valid() ? out : eye;
     }
 
     float sane_float(float value, float low, float high, float fallback)
@@ -221,7 +243,7 @@ namespace features::combat
         const int tick_base = pre.valid && pre.tick_base > 0 ? pre.tick_base : local.tick_base;
         ctx.ticks_to_fire = std::max(0, next_attack - tick_base);
         ctx.tick_base = tick_base;
-        ctx.eye = engine_eye(local.pawn, tick_base, ctx.eye);
+        ctx.eye = subtick_eye(engine_eye(local.pawn, tick_base, ctx.eye), pre, systems::default_fire_when);
         if (ctx.def == cstypes::weapon_id::revolver)
         {
             ctx.revolver_ready_tick = reads::field<int>(weapon, SCHEMA("C_CSWeaponBase", "m_nPostponeFireReadyTicks"_hash));

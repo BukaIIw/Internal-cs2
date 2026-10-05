@@ -7,7 +7,6 @@
 
 namespace
 {
-    constexpr float default_fire_when = 0.98f;
     constexpr float max_fire_when = 0.999f;
     constexpr float release_delay = cstypes::tick_interval;
     constexpr float when_epsilon = 1e-5f;
@@ -107,7 +106,7 @@ namespace systems
             return false;
         m_fire = true;
         m_hold = revolver();
-        m_fire_when = when < 0.f || !std::isfinite(when) ? default_fire_when : std::clamp(when, 0.f, max_fire_when);
+        m_fire_when = when < 0.f || !std::isfinite(when) ? systems::default_fire_when : std::clamp(when, 0.f, max_fire_when);
         return true;
     }
 
