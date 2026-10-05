@@ -7,6 +7,7 @@
 #include "../../core/settings.h"
 #include "../../systems/game_reads.h"
 #include "../../systems/entities.h"
+#include "../../systems/game_events.h"
 #include "../../systems/local.h"
 #include "../../systems/tracing.h"
 #include <Windows.h>
@@ -32,6 +33,10 @@ namespace
     constexpr float candidate_cos = 0.95f;
     constexpr float miss_angle = 0.07f;
     constexpr float target_height = 36.f;
+    constexpr float impact_cos = 0.96f;
+    constexpr int max_impacts = 32;
+    constexpr float impact_align = 0.9995f;
+    constexpr float impact_slack = 8.f;
 
     enum class reason
     {
@@ -65,6 +70,13 @@ namespace
         float inaccuracy = 0.f;
         float spread = 0.f;
         math::vector3 local_velocity{};
+        bool has_impact = false;
+        math::vector3 impact{};
+        math::vector3 impact_direction{};
+        float deviation = -1.f;
+        int impact_box = -1;
+        bool impact_blocked = false;
+        math::vector3 impact_local{};
     };
 
     struct manual_state
@@ -217,6 +229,64 @@ namespace
         return group > 0 && group < 16 ? group : -1;
     }
 
+    void match_impact(pending& p)
+    {
+        if (p.has_impact || !p.shot.eye.is_valid())
+            return;
+        systems::game_events::impact impacts[max_impacts]{};
+        const int count = systems::game_events::impacts_since(p.time, impacts, max_impacts);
+        math::vector3 reference{};
+        if (p.has_direction)
+            reference = p.direction;
+        else
+            math::helpers::angle_vectors(math::helpers::sanitized(p.shot.view + p.shot.recoil), reference);
+        float best = impact_cos;
+        for (int i = 0; i < count; ++i)
+        {
+            const math::vector3 to = impacts[i].point - p.shot.eye;
+            const float length = to.length();
+            if (!(length > 1.f))
+                continue;
+            const math::vector3 dir = to * (1.f / length);
+            const float dot = dir.dot(reference);
+            if (dot <= best)
+                continue;
+            best = dot;
+            p.has_impact = true;
+            p.impact = impacts[i].point;
+            p.impact_direction = dir;
+        }
+        if (!p.has_impact)
+            return;
+        if (p.has_direction)
+            p.deviation = math::rad2deg(std::acos(std::clamp(p.impact_direction.dot(p.direction), -1.f, 1.f)));
+        float reach = 0.f;
+        for (int i = 0; i < count; ++i)
+        {
+            const math::vector3 to = impacts[i].point - p.shot.eye;
+            const float length = to.length();
+            if (length > 1.f && (to * (1.f / length)).dot(p.impact_direction) > impact_align)
+                reach = std::max(reach, length);
+        }
+        float distance = 0.f;
+        p.impact_box = hitbox::nearest(p.shot.boxes, p.shot.eye, p.impact_direction, g_shared.ctx().range, distance);
+        p.impact_blocked = p.impact_box >= 0 && distance > reach + impact_slack;
+        if (p.impact_box >= 0)
+            p.impact_local = hitbox::describe(p.shot.boxes.boxes[p.impact_box], hitbox::core(p.shot.boxes.boxes[p.impact_box], p.shot.eye, p.impact_direction, distance));
+    }
+
+    void impact_text(const pending& p, char* out, std::size_t size)
+    {
+        out[0] = '\0';
+        if (!p.has_impact)
+            return;
+        const char* where = p.impact_blocked ? "wall" : p.impact_box >= 0 ? group_name(p.shot.boxes.boxes[p.impact_box].group) : "none";
+        if (p.deviation >= 0.f)
+            std::snprintf(out, size, " | real %s, dev %.2f", where, p.deviation);
+        else
+            std::snprintf(out, size, " | real %s", where);
+    }
+
     void write_record(const pending& p, bool hit, const char* why, int dealt, int remaining, int group, int server)
     {
         if (!settings::g_misc.shot_file)
@@ -269,6 +339,14 @@ namespace
         append_int(line, "remaining", remaining);
         append_int(line, "group", group);
         append_int(line, "server_group", server);
+        line += ",\"impact\":";
+        append_vector(line, p.has_impact ? p.impact : math::vector3{});
+        line += ",\"impact_direction\":";
+        append_vector(line, p.has_impact ? p.impact_direction : math::vector3{});
+        append_number(line, "impact_deviation", p.deviation);
+        append_int(line, "impact_box", p.impact_box);
+        line += ",\"impact_core\":";
+        append_vector(line, p.impact_local);
         line += ",\"boxes\":[";
         for (int i = 0; i < p.shot.boxes.count; ++i)
         {
@@ -349,11 +427,14 @@ namespace
     {
         char text[shots::text_size];
         char part[96];
+        char real[64];
+        match_impact(p);
         part_text(p, part, sizeof(part));
+        impact_text(p, real, sizeof(real));
         const int server = server_group(p);
         const int group = server >= 0 ? server : infer_group(p, static_cast<float>(dealt));
-        std::snprintf(text, sizeof(text), "Hit %s in %s for %d (%d left) | %s %s %.0f, hc %.0f%%%s%s", p.shot.player.name, group_name(group), dealt, std::max(0, remaining),
-            p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage, p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", part);
+        std::snprintf(text, sizeof(text), "Hit %s in %s for %d (%d left) | %s %s %.0f, hc %.0f%%%s%s%s", p.shot.player.name, group_name(group), dealt, std::max(0, remaining),
+            p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage, p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", part, real);
         push(true, text);
         write_record(p, true, "hit", dealt, remaining, group, server);
         p.active = false;
@@ -363,9 +444,14 @@ namespace
     {
         char text[shots::text_size];
         char part[96];
+        char real[64];
+        match_impact(p);
+        if (p.has_impact && r != reason::local_died && r != reason::target_died)
+            r = p.impact_box < 0 ? reason::spread : p.impact_blocked ? reason::occlusion : reason::animation;
         part_text(p, part, sizeof(part));
-        std::snprintf(text, sizeof(text), "Missed %s due to %s | %s %s %.0f, hc %.0f%%%s%s%s", p.shot.player.name, reason_name(r), p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage,
-            p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", p.shot.nospread ? ", nospread" : "", part);
+        impact_text(p, real, sizeof(real));
+        std::snprintf(text, sizeof(text), "Missed %s due to %s | %s %s %.0f, hc %.0f%%%s%s%s%s", p.shot.player.name, reason_name(r), p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage,
+            p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", p.shot.nospread ? ", nospread" : "", part, real);
         push(false, text);
         write_record(p, false, reason_name(r), 0, p.shot.player.health, -1, -1);
         p.active = false;

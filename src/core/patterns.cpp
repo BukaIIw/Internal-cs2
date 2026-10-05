@@ -30,7 +30,7 @@ namespace patterns
     const ::addresses::entry game_event_get_int{ "game_event_get_int", "client.dll:>E8????????3D00800000" };
     const ::addresses::entry game_event_get_pawn{ "game_event_get_pawn", "client.dll:488D05*????????4D8BF8488901+88~" };
     const ::addresses::entry game_event_get_string{ "game_event_get_string", "client.dll:>E8????????85DB0F9FC3" };
-    const ::addresses::entry game_event_manager{ "game_event_manager", "client.dll:488B0D*????????488B01FF50??FFC3~" };
+    const ::addresses::entry game_event_manager{ "game_event_manager", "client.dll:488B0D*????????4533C9488BD3488B01FF5018" };
     const ::addresses::entry game_rules{ "game_rules", "client.dll:488B0D*????????4C897010" };
     const ::addresses::entry game_scene_node_set_mesh_group{ "game_scene_node_set_mesh_group", "client.dll:>E8????????8B852C850100" };
     const ::addresses::entry game_scene_node_set_skeleton{ "game_scene_node_set_skeleton", "client.dll:>E8????????4084ED7417" };

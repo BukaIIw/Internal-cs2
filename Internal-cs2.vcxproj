@@ -58,6 +58,7 @@
     <ClCompile Include="src\core\schema.cpp" />
     <ClCompile Include="src\core\settings.cpp" />
     <ClCompile Include="src\systems\entities.cpp" />
+    <ClCompile Include="src\systems\game_events.cpp" />
     <ClCompile Include="src\systems\globals.cpp" />
     <ClCompile Include="src\systems\input.cpp" />
     <ClCompile Include="src\systems\local.cpp" />
@@ -134,6 +135,7 @@
     <ClInclude Include="src\core\schema.h" />
     <ClInclude Include="src\core\settings.h" />
     <ClInclude Include="src\systems\entities.h" />
+    <ClInclude Include="src\systems\game_events.h" />
     <ClInclude Include="src\systems\game_reads.h" />
     <ClInclude Include="src\systems\globals.h" />
     <ClInclude Include="src\systems\input.h" />

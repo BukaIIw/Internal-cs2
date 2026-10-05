@@ -10,6 +10,7 @@
 #include "../core/settings.h"
 #include "../core/cstypes.h"
 #include "../systems/systems.h"
+#include "../systems/game_events.h"
 #include "../ui/menu.h"
 #include "imgui.h"
 
@@ -42,6 +43,7 @@ void features::initialize()
 
 void features::register_all()
 {
+    events::subscribe(type::frame_stage, "game events", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) systems::game_events::update(); }, prio::first);
     events::subscribe(type::frame_stage, "local", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) g_local.update(); }, prio::first);
     events::subscribe(type::frame_stage, "entities", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) g_entities.update(settings::g_visuals.esp, settings::g_visuals.teammates); }, prio::systems);
     events::subscribe(type::frame_stage, "changer", [](void* a) { changer::on_frame_stage(stage_of(a)); }, prio::normal);
@@ -91,6 +93,7 @@ void features::register_all()
     events::subscribe(type::menu_toggle, "settings", [](void* a) { if (!*static_cast<bool*>(a)) settings::save(); }, prio::normal);
 
     events::subscribe(type::unload, "settings", [](void*) { settings::save(); }, prio::first);
+    events::subscribe(type::unload, "game events", [](void*) { systems::game_events::shutdown(); }, prio::first);
     events::subscribe(type::unload, "changer", [](void*) { changer::on_unload(); }, prio::normal);
     events::subscribe(type::unload, "glow", [](void*) { visuals::g_glow.restore(); }, prio::normal);
     events::subscribe(type::unload, "thirdperson", [](void*) { misc::g_thirdperson.restore(); }, prio::normal);
