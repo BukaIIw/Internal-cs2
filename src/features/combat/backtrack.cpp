@@ -171,6 +171,16 @@ namespace features::combat::backtrack
         return written;
     }
 
+    int current_tick(std::uintptr_t pawn)
+    {
+        if (!pawn)
+            return 0;
+        const float sim = reads::field<float>(pawn, SCHEMA("C_BaseEntity", "m_flSimulationTime"_hash));
+        if (!std::isfinite(sim) || sim <= 0.f)
+            return 0;
+        return static_cast<int>(std::lround(sim / cstypes::tick_interval));
+    }
+
     bool pitch_broken(int slot)
     {
         if (slot < 0 || slot >= slots)

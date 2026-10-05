@@ -22,4 +22,5 @@ namespace features::combat::backtrack
     bool tick_valid(int tick, int tick_base);
     int collect(int slot, int tick_base, const record** out, int max);
     bool pitch_broken(int slot);
+    int current_tick(std::uintptr_t pawn);
 }

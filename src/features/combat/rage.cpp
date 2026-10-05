@@ -581,8 +581,9 @@ namespace features::combat
         {
             if (cfg.autofire || user_attack)
                 m_firing = systems::g_view.fire();
-            if (m_firing && best.tick > 0)
-                systems::g_view.set_render_tick(best.tick + 1);
+            const int record_tick = best.tick > 0 ? best.tick : backtrack::current_tick(best.player.pawn);
+            if (m_firing && record_tick > 0)
+                systems::g_view.set_render_tick(record_tick + 1);
         }
         else if (user_attack && !cfg.autofire && !revolver)
             systems::g_view.suppress_fire();
