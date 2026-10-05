@@ -3,12 +3,13 @@
 #include "hitbox.h"
 #include "../../core/math.h"
 #include "../../systems/entities.h"
+#include "../../systems/input.h"
 #include <cstdint>
 
 namespace features::combat::shots
 {
     constexpr int max_entries = 8;
-    constexpr int text_size = 160;
+    constexpr int text_size = 256;
 
     struct fired
     {
@@ -21,6 +22,7 @@ namespace features::combat::shots
         bool nospread = false;
         bool pitch_broken = false;
         bool penetrated = false;
+        bool manual = false;
         int tick = 0;
         math::vector3 eye{};
         math::qangle view{};
@@ -36,6 +38,7 @@ namespace features::combat::shots
     };
 
     void on_fire(const fired& shot, const weapon_context& ctx, std::uintptr_t local_pawn);
+    void on_command(systems::input::usercmd& cmd, bool aimbot);
     void update();
     void reset();
     int snapshot(entry* out, int max);

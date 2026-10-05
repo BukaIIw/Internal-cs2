@@ -692,6 +692,7 @@ void settings::register_all()
         add(group_key(prefix, "rage.multipoint"), rage.multipoint);
         add(group_key(prefix, "hitbox.head_scale"), rage.head_scale);
         add(group_key(prefix, "hitbox.body_scale"), rage.body_scale);
+        add(group_key(prefix, "rage.safe_scale"), rage.safe_scale);
         add(group_key(prefix, "rage.hitchance"), rage.hitchance);
         add(group_key(prefix, "rage.min_damage"), rage.minimum_damage);
         add(group_key(prefix, "rage.damage_override"), rage.damage_override);
@@ -718,6 +719,7 @@ void settings::register_all()
         add(group_key(prefix, "aim.trigger_min_damage"), trigger.minimum_damage);
         add(group_key(prefix, "trigger.hitchance"), trigger.hitchance);
         add(group_key(prefix, "trigger.seed_check"), trigger.seed_check);
+        add(group_key(prefix, "trigger.safe_scale"), trigger.safe_scale);
         add(group_key(prefix, "trigger.teammates"), trigger.teammates);
     }
 
@@ -739,6 +741,8 @@ void settings::register_all()
     add("visuals.weapon", g_visuals.weapon);
     add("visuals.distance", g_visuals.distance);
     add("visuals.skeleton", g_visuals.skeleton);
+    add("visuals.skeleton_all", g_visuals.skeleton_all);
+    add("visuals.hitbox_zones", g_visuals.hitbox_zones);
     add("visuals.snaplines", g_visuals.snaplines);
     add("visuals.teammates", g_visuals.teammates);
     add("visuals.visible_color", g_visuals.visible);
@@ -764,6 +768,7 @@ void settings::register_all()
     add("overlay.watermark", g_misc.watermark);
     add("overlay.keybinds", g_misc.keybinds);
     add("overlay.shot_logs", g_misc.shot_logs);
+    add("overlay.shot_file", g_misc.shot_file);
     add("overlay.keybinds_x", g_misc.keybinds_x);
     add("overlay.keybinds_y", g_misc.keybinds_y);
 

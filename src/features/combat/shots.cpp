@@ -3,6 +3,9 @@
 #include "spread.h"
 #include "../../core/cstypes.h"
 #include "../../core/log.h"
+#include "../../core/schema.h"
+#include "../../core/settings.h"
+#include "../../systems/game_reads.h"
 #include "../../systems/entities.h"
 #include "../../systems/local.h"
 #include "../../systems/tracing.h"
@@ -11,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <mutex>
+#include <string>
 
 namespace
 {
@@ -22,6 +26,12 @@ namespace
     constexpr int slots = 65;
     constexpr std::uint64_t resolve_ms = 700;
     constexpr float damage_match = 2.f;
+    constexpr int confirm_ticks = 16;
+    constexpr int server_ticks = 1;
+    constexpr int server_shoot_window = 4;
+    constexpr float candidate_cos = 0.95f;
+    constexpr float miss_angle = 0.07f;
+    constexpr float target_height = 36.f;
 
     enum class reason
     {
@@ -46,7 +56,28 @@ namespace
         float expect_damage = 0.f;
         float distance = 0.f;
         reason predicted = reason::none;
+        bool has_direction = false;
+        math::vector3 direction{};
+        int predicted_box = -1;
+        math::vector3 predicted_point{};
+        math::vector3 predicted_local{};
+        int weapon_def = 0;
+        float inaccuracy = 0.f;
+        float spread = 0.f;
+        math::vector3 local_velocity{};
     };
+
+    struct manual_state
+    {
+        bool active = false;
+        int clip = 0;
+        int ticks = 0;
+        std::uintptr_t weapon = 0;
+        fired shot{};
+    };
+
+    manual_state g_manual{};
+    hitbox::set g_search{};
 
     pending g_pending[max_pending]{};
     int g_health[slots]{};
@@ -117,6 +148,179 @@ namespace
         logs::Add(hit ? logs::Success : logs::Warning, "%s", text);
     }
 
+    std::wstring log_directory()
+    {
+        static const std::wstring value = [] {
+            wchar_t buffer[MAX_PATH]{};
+            const DWORD length = GetEnvironmentVariableW(L"APPDATA", buffer, MAX_PATH);
+            std::wstring dir = length > 0 && length < MAX_PATH ? std::wstring(buffer, length) : std::wstring(L".");
+            dir += L"\\Internal-cs2";
+            CreateDirectoryW(dir.c_str(), nullptr);
+            dir += L"\\shots";
+            CreateDirectoryW(dir.c_str(), nullptr);
+            return dir;
+        }();
+        return value;
+    }
+
+    void append_vector(std::string& out, const math::vector3& v)
+    {
+        char buffer[96];
+        std::snprintf(buffer, sizeof(buffer), "[%.3f,%.3f,%.3f]", v.x, v.y, v.z);
+        out += buffer;
+    }
+
+    void append_angle(std::string& out, const math::qangle& v)
+    {
+        char buffer[96];
+        std::snprintf(buffer, sizeof(buffer), "[%.4f,%.4f,%.4f]", v.x, v.y, v.z);
+        out += buffer;
+    }
+
+    void append_string(std::string& out, const char* text)
+    {
+        out += '"';
+        for (const char* c = text; c && *c; ++c)
+        {
+            const unsigned char ch = static_cast<unsigned char>(*c);
+            if (ch == '"' || ch == '\\')
+            {
+                out += '\\';
+                out += static_cast<char>(ch);
+            }
+            else if (ch >= 0x20)
+                out += static_cast<char>(ch);
+        }
+        out += '"';
+    }
+
+    void append_number(std::string& out, const char* key, double value)
+    {
+        char buffer[64];
+        std::snprintf(buffer, sizeof(buffer), ",\"%s\":%.4f", key, value);
+        out += buffer;
+    }
+
+    void append_int(std::string& out, const char* key, long long value)
+    {
+        char buffer[64];
+        std::snprintf(buffer, sizeof(buffer), ",\"%s\":%lld", key, value);
+        out += buffer;
+    }
+
+    int server_group(const pending& p)
+    {
+        const std::uint32_t offset = SCHEMA("C_CSPlayerPawn", "m_LastHitGroup"_hash);
+        if (!offset || !p.shot.player.pawn)
+            return -1;
+        const int group = systems::reads::field<int>(p.shot.player.pawn, offset, -1);
+        return group > 0 && group < 16 ? group : -1;
+    }
+
+    void write_record(const pending& p, bool hit, const char* why, int dealt, int remaining, int group, int server)
+    {
+        if (!settings::g_misc.shot_file)
+            return;
+        std::string line;
+        line.reserve(8192);
+        line += "{\"result\":";
+        append_string(line, hit ? "hit" : "miss");
+        line += ",\"reason\":";
+        append_string(line, why);
+        append_int(line, "time", static_cast<long long>(p.time));
+        line += ",\"manual\":";
+        line += p.shot.manual ? "true" : "false";
+        line += ",\"nospread\":";
+        line += p.shot.nospread ? "true" : "false";
+        append_int(line, "weapon", p.weapon_def);
+        append_int(line, "tick", p.shot.tick);
+        append_int(line, "backtrack", p.shot.backtrack_tick);
+        append_number(line, "inaccuracy", p.inaccuracy);
+        append_number(line, "spread", p.spread);
+        line += ",\"eye\":";
+        append_vector(line, p.shot.eye);
+        line += ",\"view\":";
+        append_angle(line, p.shot.view);
+        line += ",\"recoil\":";
+        append_angle(line, p.shot.recoil);
+        line += ",\"direction\":";
+        append_vector(line, p.has_direction ? p.direction : math::vector3{});
+        line += ",\"local_velocity\":";
+        append_vector(line, p.local_velocity);
+        line += ",\"target\":{\"name\":";
+        append_string(line, p.shot.player.name);
+        append_int(line, "health", p.shot.player.health);
+        append_int(line, "armor", p.shot.player.armor);
+        line += ",\"origin\":";
+        append_vector(line, p.shot.player.origin);
+        line += ",\"velocity\":";
+        append_vector(line, p.shot.player.velocity);
+        line += "}";
+        append_int(line, "aimed_group", p.shot.group);
+        append_number(line, "aimed_damage", p.shot.damage);
+        append_number(line, "hitchance", p.shot.hitchance);
+        append_int(line, "predicted_box", p.predicted_box);
+        append_number(line, "predicted_distance", p.distance);
+        line += ",\"predicted_point\":";
+        append_vector(line, p.predicted_point);
+        line += ",\"predicted_local\":";
+        append_vector(line, p.predicted_local);
+        append_int(line, "dealt", dealt);
+        append_int(line, "remaining", remaining);
+        append_int(line, "group", group);
+        append_int(line, "server_group", server);
+        line += ",\"boxes\":[";
+        for (int i = 0; i < p.shot.boxes.count; ++i)
+        {
+            const hitbox::box& b = p.shot.boxes.boxes[i];
+            if (i)
+                line += ',';
+            char head[96];
+            std::snprintf(head, sizeof(head), "{\"index\":%d,\"group\":%d,\"capsule\":%d,\"radius\":%.3f,\"a\":", b.index, b.group, b.capsule ? 1 : 0, b.radius);
+            line += head;
+            append_vector(line, b.a);
+            line += ",\"b\":";
+            append_vector(line, b.b);
+            line += ",\"origin\":";
+            append_vector(line, b.origin);
+            line += ",\"axis\":[";
+            append_vector(line, b.axis[0]);
+            line += ',';
+            append_vector(line, b.axis[1]);
+            line += ',';
+            append_vector(line, b.axis[2]);
+            line += "],\"mins\":";
+            append_vector(line, b.mins);
+            line += ",\"maxs\":";
+            append_vector(line, b.maxs);
+            line += '}';
+        }
+        line += "]}\n";
+
+        SYSTEMTIME st{};
+        GetLocalTime(&st);
+        wchar_t name[64];
+        swprintf_s(name, L"\\shots_%04u%02u%02u.jsonl", st.wYear, st.wMonth, st.wDay);
+        const std::wstring path = log_directory() + name;
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, path.c_str(), L"ab") || !file)
+            return;
+        std::fwrite(line.data(), 1, line.size(), file);
+        std::fclose(file);
+    }
+
+    void part_text(const pending& p, char* out, std::size_t size)
+    {
+        out[0] = '\0';
+        if (p.predicted_box < 0 || p.predicted_box >= p.shot.boxes.count)
+            return;
+        const hitbox::box& b = p.shot.boxes.boxes[p.predicted_box];
+        if (b.capsule)
+            std::snprintf(out, size, " | entry %s r%.2f t%.2f", group_name(b.group), p.predicted_local.y, p.predicted_local.x);
+        else
+            std::snprintf(out, size, " | entry %s %.2f %.2f %.2f", group_name(b.group), p.predicted_local.x, p.predicted_local.y, p.predicted_local.z);
+    }
+
     int infer_group(const pending& p, float dealt)
     {
         const weapon_context& ctx = g_shared.ctx();
@@ -144,19 +348,26 @@ namespace
     void resolve_hit(pending& p, int dealt, int remaining)
     {
         char text[shots::text_size];
-        const int group = infer_group(p, static_cast<float>(dealt));
-        std::snprintf(text, sizeof(text), "Hit %s in %s for %d (%d left) | aimed %s %.0f, hc %.0f%%%s", p.shot.player.name, group_name(group), dealt, std::max(0, remaining),
-            group_name(p.shot.group), p.shot.damage, p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "");
+        char part[96];
+        part_text(p, part, sizeof(part));
+        const int server = server_group(p);
+        const int group = server >= 0 ? server : infer_group(p, static_cast<float>(dealt));
+        std::snprintf(text, sizeof(text), "Hit %s in %s for %d (%d left) | %s %s %.0f, hc %.0f%%%s%s", p.shot.player.name, group_name(group), dealt, std::max(0, remaining),
+            p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage, p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", part);
         push(true, text);
+        write_record(p, true, "hit", dealt, remaining, group, server);
         p.active = false;
     }
 
     void resolve_miss(pending& p, reason r)
     {
         char text[shots::text_size];
-        std::snprintf(text, sizeof(text), "Missed %s due to %s | aimed %s %.0f, hc %.0f%%%s%s", p.shot.player.name, reason_name(r), group_name(p.shot.group), p.shot.damage,
-            p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", p.shot.nospread ? ", nospread" : "");
+        char part[96];
+        part_text(p, part, sizeof(part));
+        std::snprintf(text, sizeof(text), "Missed %s due to %s | %s %s %.0f, hc %.0f%%%s%s%s", p.shot.player.name, reason_name(r), p.shot.manual ? "manual" : "aimed", group_name(p.shot.group), p.shot.damage,
+            p.shot.hitchance, p.shot.backtrack_tick > 0 ? ", backtrack" : "", p.shot.nospread ? ", nospread" : "", part);
         push(false, text);
+        write_record(p, false, reason_name(r), 0, p.shot.player.health, -1, -1);
         p.active = false;
     }
 
@@ -225,9 +436,15 @@ namespace features::combat::shots
         next.time = GetTickCount64();
         next.shot = shot;
         next.predicted = reason::unknown;
+        next.weapon_def = ctx.def;
+        next.inaccuracy = ctx.inaccuracy;
+        next.spread = ctx.spread;
+        next.local_velocity = systems::g_local.get().velocity;
         math::vector3 direction{};
         if (spread::bullet(ctx, shot.view, shot.recoil, shot.tick, direction))
         {
+            next.has_direction = true;
+            next.direction = direction;
             float distance = 0.f;
             const int index = hitbox::nearest(shot.boxes, shot.eye, direction, ctx.range, distance);
             next.distance = distance;
@@ -236,6 +453,9 @@ namespace features::combat::shots
             else
             {
                 const math::vector3 end = shot.eye + direction * distance;
+                next.predicted_box = index;
+                next.predicted_point = end;
+                next.predicted_local = hitbox::describe(shot.boxes.boxes[index], end);
                 const hitbox::box& box = shot.boxes.boxes[index];
                 bool reached = false;
                 float damage = 0.f;
@@ -267,6 +487,119 @@ namespace features::combat::shots
         if (!(next.distance > 0.f))
             next.distance = shot.eye.distance(shot.player.origin);
         *slot = next;
+    }
+
+    int command_tick(systems::input::usercmd& cmd, int tick_base, int& index)
+    {
+        const int count = cmd.history_size();
+        index = -1;
+        if (count <= 0 || tick_base <= 0)
+            return 0;
+        if (settings::g_rage.tick_source != server_ticks)
+        {
+            index = count - 1;
+            return cmd.history_player_tick(index);
+        }
+        const int attack = cmd.attack1_index();
+        if (attack < 0 || attack >= count)
+            return tick_base;
+        index = attack;
+        return std::clamp(cmd.history_player_tick(attack), tick_base - server_shoot_window, tick_base);
+    }
+
+    bool find_target(const weapon_context& ctx, std::uintptr_t local_pawn, const math::vector3& direction, fired& out)
+    {
+        const auto players = systems::g_entities.players();
+        bool found = false;
+        float best_distance = ctx.range;
+        float best_angle = miss_angle;
+        for (const systems::entities::player& player : players)
+        {
+            if (!detail::valid_target(player, local_pawn, false))
+                continue;
+            const math::vector3 to = (math::vector3{ player.origin.x, player.origin.y, player.origin.z + target_height } - ctx.eye).normalized();
+            if (to.dot(direction) < candidate_cos)
+                continue;
+            if (!hitbox::collect(player.pawn, g_search))
+                continue;
+            float distance = 0.f;
+            const int index = hitbox::nearest(g_search, ctx.eye, direction, ctx.range, distance);
+            if (index >= 0)
+            {
+                if (distance >= best_distance)
+                    continue;
+                best_distance = distance;
+                best_angle = -1.f;
+                out.player = player;
+                out.boxes = g_search;
+                out.group = g_search.boxes[index].group;
+                out.damage = detail::damage(ctx, player, out.group, distance);
+                found = true;
+                continue;
+            }
+            if (best_angle < 0.f)
+                continue;
+            for (int i = 0; i < g_search.count; ++i)
+            {
+                const hitbox::box& b = g_search.boxes[i];
+                const math::vector3 dir = (b.center - ctx.eye).normalized();
+                const float angle = std::acos(std::clamp(dir.dot(direction), -1.f, 1.f));
+                if (angle < best_angle)
+                {
+                    best_angle = angle;
+                    out.player = player;
+                    out.boxes = g_search;
+                    out.group = b.group;
+                    out.damage = 0.f;
+                    found = true;
+                }
+            }
+        }
+        if (found)
+            out.slot = out.player.index;
+        return found;
+    }
+
+    void on_command(systems::input::usercmd& cmd, bool aimbot)
+    {
+        const weapon_context& ctx = g_shared.ctx();
+        const std::uintptr_t local_pawn = systems::g_local.get().pawn;
+        if (g_manual.active)
+        {
+            if (!ctx.valid || ctx.weapon != g_manual.weapon)
+                g_manual = {};
+            else if (ctx.clip < g_manual.clip)
+            {
+                on_fire(g_manual.shot, ctx, local_pawn);
+                g_manual = {};
+            }
+            else if (++g_manual.ticks > confirm_ticks)
+                g_manual = {};
+        }
+        if (aimbot || g_manual.active || !settings::g_misc.shot_file || !cmd || !local_pawn)
+            return;
+        if (!ctx.valid || !ctx.gun || !ctx.can_fire || ctx.clip <= 0 || (cmd.buttons() & cstypes::command_buttons::in_attack) == 0)
+            return;
+        int index = -1;
+        const int tick = command_tick(cmd, ctx.tick_base, index);
+        math::qangle view{};
+        if (tick <= 0 || !(index >= 0 ? cmd.history_angles(index, view) : cmd.base_angles(view)) || !view.is_valid())
+            return;
+        view.z = 0.f;
+        fired shot{};
+        shot.manual = true;
+        shot.view = view;
+        shot.tick = tick;
+        shot.eye = ctx.eye;
+        shot.recoil = detail::recoil(ctx);
+        math::vector3 direction{};
+        if (!spread::bullet(ctx, view, shot.recoil, tick, direction) || !find_target(ctx, local_pawn, direction, shot))
+            return;
+        g_manual.active = true;
+        g_manual.clip = ctx.clip;
+        g_manual.ticks = 0;
+        g_manual.weapon = ctx.weapon;
+        g_manual.shot = shot;
     }
 
     void update()
@@ -330,6 +663,7 @@ namespace features::combat::shots
     {
         for (pending& p : g_pending)
             p = {};
+        g_manual = {};
     }
 
     int snapshot(entry* out, int max)

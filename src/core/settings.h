@@ -74,6 +74,7 @@ namespace settings
             std::uint32_t multipoint = hb_head | hb_chest | hb_stomach;
             float head_scale = 0.6f;
             float body_scale = 0.55f;
+            float safe_scale = 0.8f;
             int hitchance = 65;
             int minimum_damage = 30;
             keys::bind damage_override_key{ 0, keys::mode::hold };
@@ -118,6 +119,7 @@ namespace settings
             int minimum_damage = 1;
             int hitchance = 0;
             bool seed_check = true;
+            float safe_scale = 0.8f;
             bool teammates = false;
         };
     }
@@ -145,6 +147,8 @@ namespace settings
         bool weapon = true;
         bool distance = false;
         bool skeleton = false;
+        bool skeleton_all = false;
+        bool hitbox_zones = false;
         bool snaplines = false;
         bool teammates = false;
         color visible{ 0.30f, 0.85f, 0.45f, 1.f };
@@ -173,6 +177,7 @@ namespace settings
         bool watermark = true;
         bool keybinds = true;
         bool shot_logs = true;
+        bool shot_file = true;
         float keybinds_x = -1.f;
         float keybinds_y = -1.f;
     };

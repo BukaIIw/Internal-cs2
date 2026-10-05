@@ -1,6 +1,8 @@
 #include "visuals.h"
 #include "visuals_detail.h"
 #include "../changer/changer.h"
+#include "../combat/combat.h"
+#include "../combat/hitbox.h"
 #include "../../core/addresses.h"
 #include "../../core/cstypes.h"
 #include "../../core/patterns.h"
@@ -14,6 +16,7 @@
 #include "imgui.h"
 #include <Windows.h>
 #include <array>
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -41,6 +44,12 @@ namespace
     constexpr float max_segment = 40.f;
     constexpr float max_origin_drift = 128.f;
     constexpr std::uintptr_t utl_vector_data = 8;
+    constexpr int ring_points = 16;
+    constexpr int max_hull = ring_points * 2;
+    constexpr int zone_full_alpha = 35;
+    constexpr int zone_multipoint_alpha = 60;
+    constexpr int zone_safe_alpha = 100;
+    constexpr int zone_outline_alpha = 140;
     constexpr std::uintptr_t model_bases[] = { 0x8, 0x0, 0x10 };
     constexpr const char* excluded_bones[] = {
         "ik_", "_ik", "lean", "cam", "weapon", "root", "attach", "aim", "prop", "driver", "eye", "jaw", "lid", "brow",
@@ -64,6 +73,7 @@ namespace
     struct model_skeleton
     {
         std::uintptr_t model = 0;
+        bool all = false;
         bool resolved = false;
         int pairs = 0;
         std::array<std::uint8_t, max_skeleton_bones * 2> pair{};
@@ -83,6 +93,8 @@ namespace
         bool visible = false;
         int pairs = 0;
         std::array<std::uint8_t, max_skeleton_bones * 2> pair{};
+        bool zones = false;
+        features::combat::hitbox::set boxes{};
         char name[32]{};
         char weapon[64]{};
     };
@@ -187,7 +199,7 @@ namespace
                 continue;
             std::array<bool, max_skeleton_bones> kept{};
             kept.fill(true);
-            if (!names || !read_kept(out.model + base + skeleton + names, count, kept))
+            if (!out.all && (!names || !read_kept(out.model + base + skeleton + names, count, kept)))
                 kept.fill(true);
             for (int i = 1; i < count && out.pairs < max_skeleton_bones; ++i)
             {
@@ -206,17 +218,18 @@ namespace
         }
     }
 
-    const model_skeleton* skeleton_of(std::uintptr_t model)
+    const model_skeleton* skeleton_of(std::uintptr_t model, bool all)
     {
         if (!model)
             return nullptr;
         for (const model_skeleton& m : g_models)
-            if (m.model == model && m.resolved)
+            if (m.model == model && m.all == all && m.resolved)
                 return m.pairs > 0 ? &m : nullptr;
         model_skeleton& slot = g_models[g_model_next];
         g_model_next = (g_model_next + 1) % model_slots;
         slot = {};
         slot.model = model;
+        slot.all = all;
         resolve_skeleton(slot);
         return slot.pairs > 0 ? &slot : nullptr;
     }
@@ -224,7 +237,7 @@ namespace
     void fill_skeleton(esp_player& e, std::uintptr_t pawn)
     {
         e.pairs = 0;
-        if (const model_skeleton* m = skeleton_of(model_of(pawn)))
+        if (const model_skeleton* m = skeleton_of(model_of(pawn), settings::g_visuals.skeleton_all))
         {
             e.pairs = m->pairs;
             e.pair = m->pair;
@@ -358,6 +371,9 @@ namespace
                 fill_skeleton(e, p.pawn);
             else
                 e.pairs = 0;
+            e.zones = cfg.hitbox_zones && features::combat::hitbox::collect(p.pawn, e.boxes);
+            if (!e.zones)
+                e.boxes.count = 0;
             std::memcpy(e.name, p.name, sizeof(e.name));
             e.name[sizeof(e.name) - 1] = '\0';
             if (cfg.weapon)
@@ -407,6 +423,102 @@ namespace
         const float radius = std::tan(math::deg2rad(fov)) / (aspect * 0.75f) * screen.x * 0.5f;
         if (radius > 0.f && radius < screen.x)
             draw->AddCircle(ImVec2(screen.x * 0.5f, screen.y * 0.5f), radius, IM_COL32(255, 255, 255, 90), 64);
+    }
+
+    ImU32 with_alpha(ImU32 color, int alpha)
+    {
+        return (color & 0x00FFFFFFu) | (static_cast<ImU32>(alpha) << 24);
+    }
+
+    float cross(const ImVec2& o, const ImVec2& a, const ImVec2& b)
+    {
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    }
+
+    int convex_hull(ImVec2* points, int count, ImVec2* out)
+    {
+        if (count < 3)
+            return 0;
+        std::sort(points, points + count, [](const ImVec2& a, const ImVec2& b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
+        int k = 0;
+        for (int i = 0; i < count; ++i)
+        {
+            while (k >= 2 && cross(out[k - 2], out[k - 1], points[i]) <= 0.f)
+                --k;
+            out[k++] = points[i];
+        }
+        for (int i = count - 2, t = k + 1; i >= 0; --i)
+        {
+            while (k >= t && cross(out[k - 2], out[k - 1], points[i]) <= 0.f)
+                --k;
+            out[k++] = points[i];
+        }
+        return k > 1 ? k - 1 : 0;
+    }
+
+    int box_outline(const math::view_matrix& matrix, const features::combat::hitbox::box& b, const math::vector3& shift, const math::vector3& eye, const ImVec2& screen, ImVec2* out)
+    {
+        ImVec2 points[max_hull];
+        int count = 0;
+        if (b.capsule)
+        {
+            const math::vector3 ends[2] = { b.a + shift, b.b + shift };
+            const math::vector3 forward = ((ends[0] + ends[1]) * 0.5f - eye).normalized();
+            const math::vector3 helper = std::fabs(forward.z) < 0.9f ? math::vector3{ 0.f, 0.f, 1.f } : math::vector3{ 1.f, 0.f, 0.f };
+            const math::vector3 right = math::vector3{ forward.y * helper.z - forward.z * helper.y, forward.z * helper.x - forward.x * helper.z, forward.x * helper.y - forward.y * helper.x }.normalized();
+            const math::vector3 up{ right.y * forward.z - right.z * forward.y, right.z * forward.x - right.x * forward.z, right.x * forward.y - right.y * forward.x };
+            for (const math::vector3& end : ends)
+                for (int i = 0; i < ring_points; ++i)
+                {
+                    const float angle = static_cast<float>(i) * 6.2831853f / static_cast<float>(ring_points);
+                    const math::vector3 world = end + right * (std::cos(angle) * b.radius) + up * (std::sin(angle) * b.radius);
+                    if (!project(matrix, world, screen, points[count]))
+                        return 0;
+                    ++count;
+                }
+        }
+        else
+        {
+            for (int i = 0; i < 8; ++i)
+            {
+                const math::vector3 local{ (i & 1) ? b.maxs.x : b.mins.x, (i & 2) ? b.maxs.y : b.mins.y, (i & 4) ? b.maxs.z : b.mins.z };
+                const math::vector3 world = b.origin + shift + b.axis[0] * local.x + b.axis[1] * local.y + b.axis[2] * local.z;
+                if (!project(matrix, world, screen, points[count]))
+                    return 0;
+                ++count;
+            }
+        }
+        return convex_hull(points, count, out);
+    }
+
+    void draw_zone(ImDrawList* draw, const math::view_matrix& matrix, const features::combat::hitbox::box& b, const math::vector3& shift, const math::vector3& eye, const ImVec2& screen, ImU32 fill, ImU32 outline)
+    {
+        ImVec2 hull[max_hull + 1];
+        const int count = box_outline(matrix, b, shift, eye, screen, hull);
+        if (count < 3)
+            return;
+        draw->AddConvexPolyFilled(hull, count, fill);
+        if (outline)
+            draw->AddPolyline(hull, count, outline, ImDrawFlags_Closed, 1.f);
+    }
+
+    void draw_zones(ImDrawList* draw, const esp_snapshot& snap, const esp_player& e, const math::vector3& live_origin, ImU32 color, const ImVec2& screen)
+    {
+        namespace hitbox = features::combat::hitbox;
+        const math::vector3 shift = live_origin - e.origin;
+        const math::vector3 eye = systems::g_local.get().eye;
+        const auto& rage = settings::rage_for(features::combat::g_shared.ctx().group);
+        for (int i = 0; i < e.boxes.count; ++i)
+        {
+            const hitbox::box& b = e.boxes.boxes[i];
+            draw_zone(draw, snap.matrix, b, shift, eye, screen, with_alpha(color, zone_full_alpha), with_alpha(color, zone_outline_alpha));
+            if (rage.multipoint & b.bit)
+            {
+                const float scale = b.group == cstypes::hitgroup::head ? rage.head_scale : rage.body_scale;
+                draw_zone(draw, snap.matrix, hitbox::scaled(b, scale), shift, eye, screen, with_alpha(color, zone_multipoint_alpha), 0);
+            }
+            draw_zone(draw, snap.matrix, hitbox::scaled(b, rage.safe_scale), shift, eye, screen, with_alpha(color, zone_safe_alpha), 0);
+        }
     }
 
     void draw_player(ImDrawList* draw, const esp_snapshot& snap, const esp_player& e, const ImVec2& screen)
@@ -469,6 +581,9 @@ namespace
             std::snprintf(t, sizeof(t), "%.0fm", e.distance);
             outlined_text(draw, ImVec2(feet.x, below), IM_COL32(200, 200, 200, 255), t, true);
         }
+
+        if (cfg.hitbox_zones && e.zones)
+            draw_zones(draw, snap, e, live.origin, color, screen);
 
         if (cfg.skeleton && live.bones)
             for (int i = 0; i < e.pairs; ++i)

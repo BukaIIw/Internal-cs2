@@ -35,4 +35,7 @@ namespace features::combat::hitbox
     float entry(const box& target, const math::vector3& from, const math::vector3& direction);
     int nearest(const set& boxes, const math::vector3& from, const math::vector3& direction, float range, float& distance);
     int points(const box& target, const math::vector3& eye, bool multipoint, float head_scale, float body_scale, math::vector3* out, int max);
+    box scaled(const box& target, float scale);
+    void shrink(const set& in, float scale, set& out);
+    math::vector3 describe(const box& target, const math::vector3& world);
 }

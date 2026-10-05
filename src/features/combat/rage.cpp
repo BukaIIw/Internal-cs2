@@ -96,12 +96,14 @@ namespace
         math::qangle recoil{};
         math::qangle aim{};
         shots::fired shot{};
+        hitbox::set safe{};
         unconfirmed confirm{};
     };
 
     rage_state g_state{};
     hitbox::set g_scan_boxes{};
     hitbox::set g_best_boxes{};
+    hitbox::set g_safe_boxes{};
     int g_autowall_calls = 0;
     std::size_t g_rotation = 0;
     LONGLONG g_deadline = 0;
@@ -517,7 +519,8 @@ namespace features::combat
         hitchance::request request{};
         request.local = local.pawn;
         request.target = &best.player;
-        request.boxes = &g_best_boxes;
+        hitbox::shrink(g_best_boxes, cfg.safe_scale, g_safe_boxes);
+        request.boxes = &g_safe_boxes;
         request.shoot = ctx.eye;
         request.point = best.point;
         request.minimum_damage = static_cast<float>(required_damage(configured, best.player.health));
@@ -606,11 +609,13 @@ namespace features::combat
             shot.eye = ctx.eye;
             shot.recoil = recoil;
             shot.boxes = g_best_boxes;
+            shot.manual = false;
+            g_state.safe = g_safe_boxes;
             g_state.verify = seed;
             g_state.seed_tick = ctx.tick_base;
             g_state.seed_request = request;
             g_state.seed_request.target = &shot.player;
-            g_state.seed_request.boxes = &shot.boxes;
+            g_state.seed_request.boxes = &g_state.safe;
         }
         if (revolver && cfg.autofire && !m_firing)
             cock_revolver(ctx);

@@ -1,6 +1,7 @@
 #include "features.h"
 #include "changer/changer.h"
 #include "combat/combat.h"
+#include "combat/shots.h"
 #include "misc/misc.h"
 #include "movement/movement.h"
 #include "visuals/visuals.h"
@@ -71,6 +72,7 @@ void features::register_all()
     events::subscribe(type::create_move_post, "view apply", [](void* a) { g_view.apply(cmd_of(a)); }, prio::view);
     events::subscribe(type::create_move_post, "doubletap", [](void* a) { combat::g_doubletap.on_create_move_post(cmd_of(a)); }, prio::view + 1);
     events::subscribe(type::create_move_post, "rage late", [](void* a) { combat::g_rage.on_create_move_late(cmd_of(a)); }, prio::view + 2);
+    events::subscribe(type::create_move_post, "shot log", [](void* a) { combat::shots::on_command(cmd_of(a), combat::g_rage.debug.fired); }, prio::view + 3);
     events::subscribe(type::create_move_post, "view end", [](void*) { g_view.end(); }, prio::last);
 
     events::subscribe(type::override_view, "thirdperson", [](void* a) {

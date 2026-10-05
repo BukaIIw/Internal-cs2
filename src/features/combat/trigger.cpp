@@ -30,6 +30,7 @@ namespace
     };
 
     hitbox::set g_boxes{};
+    hitbox::set g_safe{};
 
     bool resolve(const systems::tracing::result& hit, const math::vector3& eye, const math::vector3& forward, float range, crosshair_hit& out)
     {
@@ -100,7 +101,8 @@ namespace
         hitchance::request request{};
         request.local = local_pawn;
         request.target = &player;
-        request.boxes = &g_boxes;
+        hitbox::shrink(g_boxes, cfg.safe_scale, g_safe);
+        request.boxes = &g_safe;
         request.shoot = ctx.eye;
         request.point = hit.point;
         request.minimum_damage = required;

@@ -160,6 +160,7 @@ namespace
         hitbox_flags("Multipoint##rage", &rage.multipoint);
         ui::slider("Head scale", &rage.head_scale, 0.f, 1.f, "%.2f");
         ui::slider("Body scale", &rage.body_scale, 0.f, 1.f, "%.2f");
+        ui::slider("Safe zone##rage", &rage.safe_scale, 0.3f, 1.f, "%.2f");
         ui::toggle("Prefer body", &rage.prefer_body);
         ui::end_card();
 
@@ -243,6 +244,7 @@ namespace
         ui::slider("Minimum damage##trigger", &trigger.minimum_damage, 1, 100, "%d hp");
         ui::slider("Hit chance##trigger", &trigger.hitchance, 0, 100, "%d%%");
         ui::toggle("Seed check##trigger", &trigger.seed_check);
+        ui::slider("Safe zone##trigger", &trigger.safe_scale, 0.3f, 1.f, "%.2f");
         hitbox_flags("Hitboxes##trigger", &trigger.hitboxes);
         ui::toggle("Teammates##trigger", &trigger.teammates);
         ui::end_card();
@@ -267,6 +269,8 @@ namespace
         ui::toggle("Weapon", &v.weapon);
         ui::toggle("Distance", &v.distance);
         ui::toggle("Skeleton", &v.skeleton);
+        ui::toggle("All bones", &v.skeleton_all);
+        ui::toggle("Hitbox zones", &v.hitbox_zones);
         ui::toggle("Snaplines", &v.snaplines);
         ui::toggle("Teammates##esp", &v.teammates);
         ui::toggle("Grenade prediction", &v.grenade_prediction);
@@ -352,6 +356,7 @@ namespace
         ui::toggle("Watermark", &misc.watermark);
         ui::toggle("Keybind list", &misc.keybinds);
         ui::toggle("Shot logs", &misc.shot_logs);
+        ui::toggle("Shot log file", &misc.shot_file);
         ui::end_card();
         ui::end_columns();
     }

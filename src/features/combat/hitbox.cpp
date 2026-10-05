@@ -384,6 +384,52 @@ namespace features::combat::hitbox
         return best;
     }
 
+    box scaled(const box& target, float scale)
+    {
+        box out = target;
+        const float s = std::clamp(std::isfinite(scale) ? scale : 1.f, 0.05f, 1.f);
+        if (target.capsule)
+        {
+            out.radius = target.radius * s;
+            return out;
+        }
+        const math::vector3 mid = (target.mins + target.maxs) * 0.5f;
+        const math::vector3 half = (target.maxs - target.mins) * (0.5f * s);
+        out.mins = mid - half;
+        out.maxs = mid + half;
+        out.a = target.origin + target.axis[0] * out.mins.x + target.axis[1] * out.mins.y + target.axis[2] * out.mins.z;
+        out.b = target.origin + target.axis[0] * out.maxs.x + target.axis[1] * out.maxs.y + target.axis[2] * out.maxs.z;
+        return out;
+    }
+
+    void shrink(const set& in, float scale, set& out)
+    {
+        out.count = in.count;
+        out.fallback = in.fallback;
+        for (int i = 0; i < in.count; ++i)
+            out.boxes[i] = scaled(in.boxes[i], scale);
+    }
+
+    math::vector3 describe(const box& target, const math::vector3& world)
+    {
+        if (target.capsule)
+        {
+            const math::vector3 axis = target.b - target.a;
+            const float length_sqr = axis.dot(axis);
+            const float t = length_sqr > epsilon ? std::clamp((world - target.a).dot(axis) / length_sqr, 0.f, 1.f) : 0.f;
+            const math::vector3 closest = target.a + axis * t;
+            const float radial = target.radius > epsilon ? world.distance(closest) / target.radius : 0.f;
+            const math::vector3 offset = world - closest;
+            const float angle = std::atan2(offset.dot(target.axis[1]), offset.dot(target.axis[2])) * 57.29578f;
+            return { t, radial, angle };
+        }
+        const math::vector3 relative = world - target.origin;
+        const math::vector3 mid = (target.mins + target.maxs) * 0.5f;
+        const math::vector3 half = (target.maxs - target.mins) * 0.5f;
+        const auto norm = [](float v, float m, float h) { return h > epsilon ? (v - m) / h : 0.f; };
+        return { norm(relative.dot(target.axis[0]), mid.x, half.x), norm(relative.dot(target.axis[1]), mid.y, half.y), norm(relative.dot(target.axis[2]), mid.z, half.z) };
+    }
+
     int points(const box& target, const math::vector3& eye, bool multipoint, float head_scale, float body_scale, math::vector3* out, int max)
     {
         if (!out || max <= 0)
