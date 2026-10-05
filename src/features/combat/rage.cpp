@@ -57,6 +57,7 @@ namespace
         bool active = false;
         int clip = 0;
         int ticks = 0;
+        float last_shot = 0.f;
         std::uintptr_t weapon = 0;
         shots::fired shot{};
     };
@@ -374,7 +375,7 @@ namespace
             c = {};
             return;
         }
-        if (ctx.clip < c.clip)
+        if (ctx.clip < c.clip || (ctx.last_shot_time > 0.f && ctx.last_shot_time > c.last_shot))
         {
             shots::on_fire(c.shot, ctx, systems::g_local.get().pawn);
             c = {};
@@ -751,6 +752,7 @@ namespace features::combat
         {
             c.active = true;
             c.clip = ctx.clip;
+            c.last_shot = ctx.last_shot_time;
             c.ticks = 0;
             c.weapon = ctx.weapon;
             c.shot = g_state.shot;

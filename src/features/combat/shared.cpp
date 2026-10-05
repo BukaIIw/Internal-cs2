@@ -257,6 +257,7 @@ namespace features::combat
         const bool wait_release = reads::field<std::uint8_t>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_bWaitForNoAttack"_hash)) != 0 && !ctx.full_auto && ctx.def != cstypes::weapon_id::revolver;
         ctx.can_fire = ctx.gun && ctx.clip > 0 && next_attack <= tick_base && !ctx.reloading && services_ready && !wait_release;
         ctx.shots_fired = std::max(0, reads::field<int>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_iShotsFired"_hash)));
+        ctx.last_shot_time = sane_float(reads::field<float>(weapon, SCHEMA("C_CSWeaponBase", "m_fLastShotTime"_hash)), 0.f, 1e7f, 0.f);
 
         const convars::convar* nospread = CONVAR("weapon_accuracy_nospread");
         if (nospread->value && nospread->get<bool>())

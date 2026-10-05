@@ -24,6 +24,7 @@ namespace features::combat
         int revolver_ready_tick = 0;
         bool revolver_hauled = false;
         int shots_fired = 0;
+        float last_shot_time = 0.f;
         int group = 0;
         int clip = 0;
         int bullets = 1;
