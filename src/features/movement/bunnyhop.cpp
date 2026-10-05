@@ -17,10 +17,9 @@ namespace
 {
     namespace reads = systems::reads;
 
-    constexpr int surf_grace_ticks = 4;
     constexpr float bias_step = 1.f / 128.f;
     constexpr float bias_decay = 1.f / 512.f;
-    constexpr float max_bias = 3.f / 64.f;
+    constexpr float max_bias = 2.f / 64.f;
     constexpr int decay_streak = 8;
 
     struct hop_context
@@ -31,13 +30,6 @@ namespace
         bool duck_locked = false;
     };
 
-    bool surfing(std::uintptr_t services)
-    {
-        if (reads::field<std::uint8_t>(services, SCHEMA("CCSPlayer_MovementServices", "m_bWasSurfing"_hash)) != 0)
-            return true;
-        const float since = reads::field<float>(services, SCHEMA("CCSPlayer_MovementServices", "m_flTicksSinceLastSurfingDetected"_hash), 1e6f);
-        return std::isfinite(since) && since >= 0.f && since < static_cast<float>(surf_grace_ticks);
-    }
 
     std::optional<hop_context> make_context(systems::input::frame& frame)
     {
@@ -65,7 +57,7 @@ namespace
             return std::nullopt;
 
         const std::uintptr_t services = features::movement::detail::movement_services(local.pawn);
-        if (!services || surfing(services))
+        if (!services)
             return std::nullopt;
 
         hop_context out{ local.pawn, services };
@@ -97,7 +89,8 @@ namespace features::movement
             return;
         }
 
-        const bool jumped = context->last_jump_tick != m_last_jump_tick;
+        const auto& pre = systems::g_prediction.pre();
+        const bool jumped = context->last_jump_tick != m_last_jump_tick || (m_air_pressed && !detail::on_ground(pre) && pre.networked_velocity.z > 0.f);
         m_last_jump_tick = context->last_jump_tick;
 
         const bool was_down = m_jump_sent;
