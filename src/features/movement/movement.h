@@ -26,6 +26,10 @@ namespace features::movement
 
     private:
         bool m_jump_sent = false;
+        bool m_air_pressed = false;
+        int m_last_jump_tick = 0;
+        int m_streak = 0;
+        float m_bias = 0.f;
     };
 
     class airstrafe
