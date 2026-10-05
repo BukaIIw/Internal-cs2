@@ -371,7 +371,7 @@ namespace
                 fill_skeleton(e, p.pawn);
             else
                 e.pairs = 0;
-            e.zones = cfg.hitbox_zones && features::combat::hitbox::collect(p.pawn, e.boxes);
+            e.zones = cfg.hitbox_zones && local.is_alive && features::combat::hitbox::collect(p.pawn, e.boxes);
             if (!e.zones)
                 e.boxes.count = 0;
             std::memcpy(e.name, p.name, sizeof(e.name));

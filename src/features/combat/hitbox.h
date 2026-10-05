@@ -38,4 +38,5 @@ namespace features::combat::hitbox
     box scaled(const box& target, float scale);
     void shrink(const set& in, float scale, set& out);
     math::vector3 describe(const box& target, const math::vector3& world);
+    math::vector3 core(const box& target, const math::vector3& from, const math::vector3& direction, float entry_distance);
 }

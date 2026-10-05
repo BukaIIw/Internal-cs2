@@ -430,6 +430,47 @@ namespace features::combat::hitbox
         return { norm(relative.dot(target.axis[0]), mid.x, half.x), norm(relative.dot(target.axis[1]), mid.y, half.y), norm(relative.dot(target.axis[2]), mid.z, half.z) };
     }
 
+    math::vector3 core(const box& target, const math::vector3& from, const math::vector3& direction, float entry_distance)
+    {
+        if (target.capsule)
+        {
+            const math::vector3 axis = target.b - target.a;
+            const math::vector3 w = from - target.a;
+            const float aa = axis.dot(axis);
+            const float ad = axis.dot(direction);
+            const float dd = direction.dot(direction);
+            const float aw = axis.dot(w);
+            const float dw = direction.dot(w);
+            const float denom = aa * dd - ad * ad;
+            float t = denom > epsilon ? std::clamp((aw * dd - ad * dw) / denom, 0.f, 1.f) : 0.f;
+            float s = dd > epsilon ? std::max(0.f, ((target.a + axis * t) - from).dot(direction) / dd) : entry_distance;
+            if (aa > epsilon)
+                t = std::clamp((from + direction * s - target.a).dot(axis) / aa, 0.f, 1.f);
+            s = dd > epsilon ? std::max(0.f, ((target.a + axis * t) - from).dot(direction) / dd) : entry_distance;
+            return from + direction * s;
+        }
+        const math::vector3 relative = from - target.origin;
+        const float origin_local[3] = { relative.dot(target.axis[0]), relative.dot(target.axis[1]), relative.dot(target.axis[2]) };
+        const float dir_local[3] = { direction.dot(target.axis[0]), direction.dot(target.axis[1]), direction.dot(target.axis[2]) };
+        const float lo[3] = { target.mins.x, target.mins.y, target.mins.z };
+        const float hi[3] = { target.maxs.x, target.maxs.y, target.maxs.z };
+        float t_min = entry_distance;
+        float t_max = far_entry;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (std::fabs(dir_local[i]) < axis_epsilon)
+                continue;
+            float t0 = (lo[i] - origin_local[i]) / dir_local[i];
+            float t1 = (hi[i] - origin_local[i]) / dir_local[i];
+            if (t0 > t1)
+                std::swap(t0, t1);
+            t_max = std::min(t_max, t1);
+        }
+        if (!(t_max >= t_min) || t_max >= far_entry)
+            return from + direction * entry_distance;
+        return from + direction * ((t_min + t_max) * 0.5f);
+    }
+
     int points(const box& target, const math::vector3& eye, bool multipoint, float head_scale, float body_scale, math::vector3* out, int max)
     {
         if (!out || max <= 0)

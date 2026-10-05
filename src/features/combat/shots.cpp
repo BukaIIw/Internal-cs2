@@ -263,7 +263,7 @@ namespace
         append_number(line, "predicted_distance", p.distance);
         line += ",\"predicted_point\":";
         append_vector(line, p.predicted_point);
-        line += ",\"predicted_local\":";
+        line += ",\"predicted_core\":";
         append_vector(line, p.predicted_local);
         append_int(line, "dealt", dealt);
         append_int(line, "remaining", remaining);
@@ -316,9 +316,9 @@ namespace
             return;
         const hitbox::box& b = p.shot.boxes.boxes[p.predicted_box];
         if (b.capsule)
-            std::snprintf(out, size, " | entry %s r%.2f t%.2f", group_name(b.group), p.predicted_local.y, p.predicted_local.x);
+            std::snprintf(out, size, " | %s r%.2f t%.2f", group_name(b.group), p.predicted_local.y, p.predicted_local.x);
         else
-            std::snprintf(out, size, " | entry %s %.2f %.2f %.2f", group_name(b.group), p.predicted_local.x, p.predicted_local.y, p.predicted_local.z);
+            std::snprintf(out, size, " | %s %.2f %.2f %.2f", group_name(b.group), p.predicted_local.x, p.predicted_local.y, p.predicted_local.z);
     }
 
     int infer_group(const pending& p, float dealt)
@@ -455,7 +455,7 @@ namespace features::combat::shots
                 const math::vector3 end = shot.eye + direction * distance;
                 next.predicted_box = index;
                 next.predicted_point = end;
-                next.predicted_local = hitbox::describe(shot.boxes.boxes[index], end);
+                next.predicted_local = hitbox::describe(shot.boxes.boxes[index], hitbox::core(shot.boxes.boxes[index], shot.eye, direction, distance));
                 const hitbox::box& box = shot.boxes.boxes[index];
                 bool reached = false;
                 float damage = 0.f;

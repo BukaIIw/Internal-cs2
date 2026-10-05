@@ -364,9 +364,9 @@ namespace systems
         ctx.local_team = local.team;
         ctx.local_alive = local.is_alive;
         ctx.local_eye = local.eye;
-        ctx.trace = visibility && local.is_alive && local.pawn && g_tracing.ready();
+        ctx.tick = g_globals.tick_count();
+        ctx.trace = visibility && local.controller && local.is_alive && local.pawn && ctx.tick > 0 && g_tracing.ready();
         ctx.teammates = teammates;
-        ctx.tick = ctx.trace ? g_globals.tick_count() : 0;
         ctx.bones = ctx.trace ? bone_array_offset() : 0;
         if (identity_table())
         {
