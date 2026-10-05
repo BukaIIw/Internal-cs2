@@ -114,6 +114,11 @@ namespace
 
 namespace convars
 {
+    std::uint64_t tick_ms()
+    {
+        return GetTickCount64();
+    }
+
     convar* find(const char* name)
     {
         if (!name || !*name)

@@ -1,6 +1,8 @@
 #include "memory.h"
 #include <Windows.h>
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -10,21 +12,17 @@ namespace
 {
     constexpr std::uintptr_t min_address = 0x10000;
     constexpr std::uintptr_t max_address = 0x7FFFFFFEFFFFull;
-    constexpr std::uint64_t readable_cache_ms = 1000;
-    constexpr std::size_t readable_cache_size = 32;
+    constexpr std::uint64_t page_cache_ttl_ms = 3000;
+    constexpr std::uint64_t page_cache_jitter_ms = 1024;
+    constexpr std::size_t page_cache_size = 16384;
+    constexpr std::uintptr_t page_shift = 12;
+    constexpr std::uintptr_t page_prefetch = 32;
+    constexpr int stamp_bits = 28;
+    constexpr std::uint64_t stamp_mask = (1ull << stamp_bits) - 1;
     constexpr std::uint32_t col_signature = 1;
     constexpr std::uintptr_t type_descriptor_name_offset = 0x10;
 
-    struct readable_region
-    {
-        std::uintptr_t start = 0;
-        std::uintptr_t end = 0;
-        std::uint64_t expires = 0;
-    };
-
-    std::shared_mutex g_readable_lock;
-    std::array<readable_region, readable_cache_size> g_readable{};
-    std::size_t g_readable_next = 0;
+    std::array<std::atomic<std::uint64_t>, page_cache_size> g_pages{};
 
     std::mutex g_module_lock;
     std::unordered_map<std::string, std::unique_ptr<memory::module_info>> g_modules;
@@ -40,20 +38,26 @@ namespace
         return (protect & readable) != 0;
     }
 
-    bool cached_readable(std::uintptr_t start, std::uintptr_t end, std::uint64_t now)
+    std::atomic<std::uint64_t>& page_slot(std::uint64_t page)
     {
-        std::shared_lock lock(g_readable_lock);
-        for (const readable_region& r : g_readable)
-            if (r.expires > now && start >= r.start && end <= r.end)
-                return true;
-        return false;
+        return g_pages[static_cast<std::size_t>((page ^ (page >> 14)) & (page_cache_size - 1))];
     }
 
-    void cache_readable(std::uintptr_t start, std::uintptr_t end, std::uint64_t now)
+    std::uint64_t stamp_of(std::uint64_t now_ms)
     {
-        std::unique_lock lock(g_readable_lock);
-        g_readable[g_readable_next] = { start, end, now + readable_cache_ms };
-        g_readable_next = (g_readable_next + 1) % readable_cache_size;
+        return (now_ms >> 6) & stamp_mask;
+    }
+
+    bool page_cached(std::uint64_t page, std::uint64_t stamp)
+    {
+        const std::uint64_t entry = page_slot(page).load(std::memory_order_relaxed);
+        return (entry >> stamp_bits) == page && (entry & stamp_mask) > stamp;
+    }
+
+    void cache_page(std::uint64_t page, std::uint64_t now_ms)
+    {
+        const std::uint64_t expires = now_ms + page_cache_ttl_ms + ((page * 0x9E3779B97F4A7C15ull) >> 32) % page_cache_jitter_ms;
+        page_slot(page).store((page << stamp_bits) | stamp_of(expires), std::memory_order_relaxed);
     }
 
     int hex_value(char c)
@@ -486,9 +490,15 @@ namespace memory
         if (end < address || end > max_address)
             return false;
         const std::uint64_t now = GetTickCount64();
-        if (cached_readable(address, end, now))
+        const std::uint64_t stamp = stamp_of(now);
+        const std::uint64_t first = address >> page_shift;
+        const std::uint64_t last = (end - 1) >> page_shift;
+        std::uint64_t page = first;
+        while (page <= last && page_cached(page, stamp))
+            ++page;
+        if (page > last)
             return true;
-        std::uintptr_t at = address;
+        std::uintptr_t at = static_cast<std::uintptr_t>(page) << page_shift;
         while (at < end)
         {
             MEMORY_BASIC_INFORMATION mbi{};
@@ -500,7 +510,10 @@ namespace memory
             const std::uintptr_t region_end = region_start + mbi.RegionSize;
             if (region_end <= at)
                 return false;
-            cache_readable(region_start, region_end, now);
+            const std::uint64_t from = std::max<std::uint64_t>(region_start >> page_shift, (at >> page_shift) > page_prefetch ? (at >> page_shift) - page_prefetch : 0);
+            const std::uint64_t to = std::min<std::uint64_t>((region_end - 1) >> page_shift, std::max<std::uint64_t>(last, at >> page_shift) + page_prefetch);
+            for (std::uint64_t p = from; p <= to; ++p)
+                cache_page(p, now);
             at = region_end;
         }
         return true;
