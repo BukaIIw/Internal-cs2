@@ -45,7 +45,7 @@ namespace systems
         const char* get_schema_name(std::uintptr_t entity) const;
         int highest_index() const;
 
-        void update();
+        void update(bool visibility, bool teammates);
         std::array<entities::player, 65> players() const;
         entities::player player_by_pawn(std::uintptr_t pawn) const;
 

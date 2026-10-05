@@ -40,7 +40,6 @@ namespace systems
 
         static void correct_movement(float& forward, float& left, float from_yaw, float to_yaw);
 
-        bool smooth_silent = false;
 
     private:
         math::qangle m_original{};

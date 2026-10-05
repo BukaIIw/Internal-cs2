@@ -682,7 +682,6 @@ void settings::register_all()
         }
 
         add(group_key(prefix, "rage.silent"), rage.silent);
-        add(group_key(prefix, "rage.silent_smooth"), rage.silent_smooth);
         add(group_key(prefix, "rage.autofire"), rage.autofire);
         add(group_key(prefix, "rage.autowall"), rage.autowall);
         add(group_key(prefix, "rage.autostop"), rage.autostop);

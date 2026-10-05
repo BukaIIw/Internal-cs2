@@ -1,5 +1,6 @@
 #include "entities.h"
 #include "game_reads.h"
+#include "globals.h"
 #include "local.h"
 #include "tracing.h"
 #include "../core/addresses.h"
@@ -29,6 +30,8 @@ namespace
     constexpr std::uint32_t bone_array_fallback = 0x80;
     constexpr std::int32_t bone_array_limit = 0x4000;
     constexpr int head_bone = 6;
+    constexpr int visibility_bones[] = { 6, 5, 4, 0, 10, 15, 23, 26, 24, 27 };
+    constexpr int visibility_slots = 65;
     constexpr float bone_range = 200.f;
     constexpr float hull_limit = 512.f;
     constexpr int max_health = 100000;
@@ -127,15 +130,28 @@ namespace
         return model_state ? model_state + bone_array_fallback : 0;
     }
 
-    bool head_position(std::uintptr_t pawn, std::uint32_t array_offset, const math::vector3& origin, math::vector3& out)
+    struct visibility_entry
+    {
+        std::uintptr_t pawn = 0;
+        int tick = 0;
+        bool visible = false;
+    };
+
+    visibility_entry g_visibility[visibility_slots]{};
+
+    std::uintptr_t bone_array(std::uintptr_t pawn, std::uint32_t array_offset)
     {
         const std::uintptr_t node = systems::reads::scene_node(pawn);
         if (!node || !array_offset)
-            return false;
-        const std::uintptr_t bones = systems::reads::pointer(node + array_offset);
+            return 0;
+        return systems::reads::pointer(node + array_offset);
+    }
+
+    bool bone_position(std::uintptr_t bones, int index, const math::vector3& origin, math::vector3& out)
+    {
         if (!bones)
             return false;
-        const std::uintptr_t at = bones + static_cast<std::uintptr_t>(head_bone) * sizeof(math::bone);
+        const std::uintptr_t at = bones + static_cast<std::uintptr_t>(index) * sizeof(math::bone);
         if (!systems::reads::readable(at, sizeof(math::vector3)))
             return false;
         const auto position = memory::read<math::vector3>(at);
@@ -168,8 +184,39 @@ namespace
         bool local_alive = false;
         math::vector3 local_eye{};
         bool trace = false;
+        bool teammates = false;
+        int tick = 0;
         std::uint32_t bones = 0;
     };
+
+    bool compute_visible(const update_context& ctx, std::uintptr_t pawn, const math::vector3& origin)
+    {
+        const std::uintptr_t bones = bone_array(pawn, ctx.bones);
+        bool any = false;
+        for (const int index : visibility_bones)
+        {
+            math::vector3 point{};
+            if (!bone_position(bones, index, origin, point))
+                continue;
+            any = true;
+            if (systems::g_tracing.is_visible(ctx.local_pawn, pawn, ctx.local_eye, point))
+                return true;
+        }
+        if (any)
+            return false;
+        return systems::g_tracing.is_visible(ctx.local_pawn, pawn, ctx.local_eye, systems::reads::eye_position(pawn, origin));
+    }
+
+    bool cached_visible(const update_context& ctx, int index, std::uintptr_t pawn, const math::vector3& origin)
+    {
+        visibility_entry& entry = g_visibility[index];
+        if (entry.pawn == pawn && entry.tick == ctx.tick && ctx.tick != 0)
+            return entry.visible;
+        entry.pawn = pawn;
+        entry.tick = ctx.tick;
+        entry.visible = compute_visible(ctx, pawn, origin);
+        return entry.visible;
+    }
 
     void fill(systems::entities::player& out, int index, const update_context& ctx)
     {
@@ -216,13 +263,8 @@ namespace
         }
         out.weapon_def = reads::item_definition(reads::active_weapon(out.pawn));
         out.enemy = out.team != ctx.local_team;
-        if (ctx.trace && ctx.local_alive && out.alive && !out.dormant)
-        {
-            math::vector3 head{};
-            if (!head_position(out.pawn, ctx.bones, origin, head))
-                head = reads::eye_position(out.pawn, origin);
-            out.visible = g_tracing.is_visible(ctx.local_pawn, out.pawn, ctx.local_eye, head);
-        }
+        if (ctx.trace && ctx.local_alive && out.alive && !out.dormant && (out.enemy || ctx.teammates) && index < visibility_slots)
+            out.visible = cached_visible(ctx, index, out.pawn, origin);
         out.valid = true;
     }
 
@@ -312,7 +354,7 @@ namespace systems
         return 0;
     }
 
-    void entity_system::update()
+    void entity_system::update(bool visibility, bool teammates)
     {
         std::array<entities::player, 65> next{};
         const auto local = g_local.get();
@@ -322,7 +364,9 @@ namespace systems
         ctx.local_team = local.team;
         ctx.local_alive = local.is_alive;
         ctx.local_eye = local.eye;
-        ctx.trace = local.is_alive && local.pawn && g_tracing.ready();
+        ctx.trace = visibility && local.is_alive && local.pawn && g_tracing.ready();
+        ctx.teammates = teammates;
+        ctx.tick = ctx.trace ? g_globals.tick_count() : 0;
         ctx.bones = ctx.trace ? bone_array_offset() : 0;
         if (identity_table())
         {

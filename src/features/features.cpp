@@ -42,7 +42,7 @@ void features::initialize()
 void features::register_all()
 {
     events::subscribe(type::frame_stage, "local", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) g_local.update(); }, prio::first);
-    events::subscribe(type::frame_stage, "entities", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) g_entities.update(); }, prio::systems);
+    events::subscribe(type::frame_stage, "entities", [](void* a) { if (stage_of(a) == cstypes::frame_stage::update) g_entities.update(settings::g_visuals.esp, settings::g_visuals.teammates); }, prio::systems);
     events::subscribe(type::frame_stage, "changer", [](void* a) { changer::on_frame_stage(stage_of(a)); }, prio::normal);
     events::subscribe(type::frame_stage, "rage", [](void* a) { combat::g_rage.on_frame_stage(stage_of(a)); }, prio::normal);
     events::subscribe(type::frame_stage, "esp", [](void* a) { visuals::g_esp.on_frame_stage(stage_of(a)); }, prio::normal);

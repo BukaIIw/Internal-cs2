@@ -166,7 +166,6 @@ namespace
         ui::next_column();
         ui::begin_card("Firing##rage", icon::Sliders);
         ui::toggle("Silent aim", &rage.silent);
-        ui::toggle("Smooth silent", &rage.silent_smooth);
         ui::toggle("Autofire", &rage.autofire);
         ui::toggle("Autowall", &rage.autowall);
         ui::toggle("Autostop", &rage.autostop);

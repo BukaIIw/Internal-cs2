@@ -12,18 +12,19 @@
 #include "../../ui/render.h"
 #include "../../items.h"
 #include "imgui.h"
+#include <Windows.h>
 #include <array>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace
 {
     constexpr std::uint32_t bone_array_in_model_state = 0x80;
     constexpr std::int32_t max_bone_array_offset = 0x4000;
-    constexpr int bone_count = 28;
     constexpr float max_bone_distance = 200.f;
     constexpr float default_height = 72.f;
     constexpr float min_height = 30.f;
@@ -33,6 +34,18 @@ namespace
     constexpr float box_aspect = 0.45f;
     constexpr float max_fov_circle = 89.f;
     constexpr int max_players = 64;
+    constexpr int max_skeleton_bones = 192;
+    constexpr int min_skeleton_bones = 8;
+    constexpr int model_slots = 16;
+    constexpr int bone_name_length = 48;
+    constexpr float max_segment = 40.f;
+    constexpr float max_origin_drift = 128.f;
+    constexpr std::uintptr_t utl_vector_data = 8;
+    constexpr std::uintptr_t model_bases[] = { 0x8, 0x0, 0x10 };
+    constexpr const char* excluded_bones[] = {
+        "ik_", "_ik", "lean", "cam", "weapon", "root", "attach", "aim", "prop", "driver", "eye", "jaw", "lid", "brow",
+        "cheek", "lip", "tongue", "nose", "mouth", "twist", "helper", "offset", "clip", "hold", "scale", "physics"
+    };
 
     struct bone_pair
     {
@@ -48,16 +61,28 @@ namespace
         { 0, 25 }, { 25, 26 }, { 26, 27 },
     };
 
+    struct model_skeleton
+    {
+        std::uintptr_t model = 0;
+        bool resolved = false;
+        int pairs = 0;
+        std::array<std::uint8_t, max_skeleton_bones * 2> pair{};
+    };
+
+    model_skeleton g_models[model_slots]{};
+    int g_model_next = 0;
+
     struct esp_player
     {
+        std::uintptr_t pawn = 0;
         math::vector3 origin{};
         float height = default_height;
         float distance = 0.f;
         int health = 0;
         bool team = false;
         bool visible = false;
-        std::uint32_t bone_mask = 0;
-        std::array<math::vector3, bone_count> bones{};
+        int pairs = 0;
+        std::array<std::uint8_t, max_skeleton_bones * 2> pair{};
         char name[32]{};
         char weapon[64]{};
     };
@@ -87,27 +112,169 @@ namespace
         return model_state ? model_state + bone_array_in_model_state : 0;
     }
 
-    std::uint32_t read_bones(std::uintptr_t pawn, const math::vector3& origin, std::array<math::vector3, bone_count>& out)
+    std::uintptr_t model_of(std::uintptr_t pawn)
     {
         const std::uintptr_t node = systems::reads::scene_node(pawn);
-        const std::uint32_t offset = bone_array_offset();
-        if (!node || !offset)
+        const std::uint32_t state = SCHEMA("CSkeletonInstance", "m_modelState"_hash);
+        const std::uint32_t handle = SCHEMA("CModelState", "m_hModel"_hash);
+        if (!node || !state || !handle)
             return 0;
-        const std::uintptr_t bones = systems::reads::pointer(node + offset);
-        if (!bones || !systems::reads::readable(bones, sizeof(math::bone) * bone_count))
-            return 0;
-        std::uint32_t mask = 0;
-        for (int i = 0; i < bone_count; ++i)
+        return systems::reads::pointer(systems::reads::pointer(node + state + handle));
+    }
+
+    bool excluded(const char* name)
+    {
+        char lower[bone_name_length]{};
+        for (int i = 0; i < bone_name_length - 1 && name[i]; ++i)
+            lower[i] = static_cast<char>(name[i] >= 'A' && name[i] <= 'Z' ? name[i] - 'A' + 'a' : name[i]);
+        for (const char* token : excluded_bones)
+            if (std::strstr(lower, token))
+                return true;
+        return false;
+    }
+
+    bool read_parents(std::uintptr_t vector, std::array<std::int16_t, max_skeleton_bones>& out, int& count)
+    {
+        if (!systems::reads::readable(vector, utl_vector_data + sizeof(std::uintptr_t)))
+            return false;
+        count = memory::read<int>(vector);
+        const std::uintptr_t data = systems::reads::pointer(vector + utl_vector_data);
+        if (count < min_skeleton_bones || count > max_skeleton_bones || !data || !systems::reads::readable(data, static_cast<std::size_t>(count) * sizeof(std::int16_t)))
+            return false;
+        for (int i = 0; i < count; ++i)
         {
-            const auto position = memory::read<math::vector3>(bones + static_cast<std::uintptr_t>(i) * sizeof(math::bone));
-            if (!systems::reads::sane(position, systems::reads::world_limit))
-                continue;
-            if ((position - origin).length_sqr() > max_bone_distance * max_bone_distance)
-                continue;
-            out[i] = position;
-            mask |= 1u << i;
+            out[i] = memory::read<std::int16_t>(data + static_cast<std::uintptr_t>(i) * sizeof(std::int16_t));
+            if (i == 0 ? out[i] >= 0 : (out[i] < -1 || out[i] >= i))
+                return false;
         }
-        return mask;
+        return true;
+    }
+
+    bool read_kept(std::uintptr_t vector, int count, std::array<bool, max_skeleton_bones>& kept)
+    {
+        if (!systems::reads::readable(vector, utl_vector_data + sizeof(std::uintptr_t)) || memory::read<int>(vector) != count)
+            return false;
+        const std::uintptr_t data = systems::reads::pointer(vector + utl_vector_data);
+        if (!data || !systems::reads::readable(data, static_cast<std::size_t>(count) * sizeof(std::uintptr_t)))
+            return false;
+        for (int i = 0; i < count; ++i)
+        {
+            const std::uintptr_t name = memory::read<std::uintptr_t>(data + static_cast<std::uintptr_t>(i) * sizeof(std::uintptr_t));
+            if (!name || !systems::reads::readable(name, 1))
+                return false;
+            const std::string text = memory::read_string(name, bone_name_length - 1);
+            if (text.empty())
+                return false;
+            kept[i] = !excluded(text.c_str());
+        }
+        return true;
+    }
+
+    void resolve_skeleton(model_skeleton& out)
+    {
+        out.resolved = true;
+        out.pairs = 0;
+        const std::uint32_t skeleton = SCHEMA("PermModelData_t", "m_modelSkeleton"_hash);
+        const std::uint32_t parents = SCHEMA("ModelSkeletonData_t", "m_nParent"_hash);
+        const std::uint32_t names = SCHEMA("ModelSkeletonData_t", "m_boneName"_hash);
+        if (!skeleton || !parents)
+            return;
+        for (const std::uintptr_t base : model_bases)
+        {
+            std::array<std::int16_t, max_skeleton_bones> parent{};
+            int count = 0;
+            if (!read_parents(out.model + base + skeleton + parents, parent, count))
+                continue;
+            std::array<bool, max_skeleton_bones> kept{};
+            kept.fill(true);
+            if (!names || !read_kept(out.model + base + skeleton + names, count, kept))
+                kept.fill(true);
+            for (int i = 1; i < count && out.pairs < max_skeleton_bones; ++i)
+            {
+                if (!kept[i])
+                    continue;
+                int a = parent[i];
+                while (a >= 0 && !kept[a])
+                    a = parent[a];
+                if (a < 0)
+                    continue;
+                out.pair[out.pairs * 2] = static_cast<std::uint8_t>(a);
+                out.pair[out.pairs * 2 + 1] = static_cast<std::uint8_t>(i);
+                ++out.pairs;
+            }
+            return;
+        }
+    }
+
+    const model_skeleton* skeleton_of(std::uintptr_t model)
+    {
+        if (!model)
+            return nullptr;
+        for (const model_skeleton& m : g_models)
+            if (m.model == model && m.resolved)
+                return m.pairs > 0 ? &m : nullptr;
+        model_skeleton& slot = g_models[g_model_next];
+        g_model_next = (g_model_next + 1) % model_slots;
+        slot = {};
+        slot.model = model;
+        resolve_skeleton(slot);
+        return slot.pairs > 0 ? &slot : nullptr;
+    }
+
+    void fill_skeleton(esp_player& e, std::uintptr_t pawn)
+    {
+        e.pairs = 0;
+        if (const model_skeleton* m = skeleton_of(model_of(pawn)))
+        {
+            e.pairs = m->pairs;
+            e.pair = m->pair;
+            return;
+        }
+        for (const auto& p : skeleton_pairs)
+        {
+            e.pair[e.pairs * 2] = static_cast<std::uint8_t>(p.a);
+            e.pair[e.pairs * 2 + 1] = static_cast<std::uint8_t>(p.b);
+            ++e.pairs;
+        }
+    }
+
+    struct live_player
+    {
+        math::vector3 origin{};
+        std::uintptr_t bones = 0;
+    };
+
+    bool read_live(std::uintptr_t pawn, const math::vector3& reference, live_player& out)
+    {
+        math::vector3 origin{};
+        if (!systems::reads::abs_origin(pawn, origin) || origin.distance(reference) > max_origin_drift)
+            return false;
+        out.origin = origin;
+        const std::uintptr_t node = systems::reads::scene_node(pawn);
+        const std::uint32_t offset = bone_array_offset();
+        out.bones = node && offset ? systems::reads::pointer(node + offset) : 0;
+        return true;
+    }
+
+    bool read_live_guarded(std::uintptr_t pawn, const math::vector3& reference, live_player& out)
+    {
+        __try
+        {
+            return read_live(pawn, reference, out);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool read_bone(std::uintptr_t bones, int index, const math::vector3& origin, math::vector3& out)
+    {
+        const std::uintptr_t at = bones + static_cast<std::uintptr_t>(index) * sizeof(math::bone);
+        if (!systems::reads::readable(at, sizeof(math::vector3)))
+            return false;
+        out = memory::read<math::vector3>(at);
+        return systems::reads::sane(out, systems::reads::world_limit) && (out - origin).length_sqr() <= max_bone_distance * max_bone_distance;
     }
 
     void weapon_name(std::uint16_t def, char* out, std::size_t size)
@@ -180,13 +347,17 @@ namespace
                 continue;
 
             auto& e = snap.players[snap.count];
+            e.pawn = p.pawn;
             e.origin = p.origin;
             e.height = std::isfinite(p.maxs.z) && p.maxs.z > min_height && p.maxs.z < max_height ? p.maxs.z : default_height;
             e.distance = (p.origin - local.eye).length() * units_to_meters;
             e.health = p.health > 100 ? 100 : p.health;
             e.team = team;
             e.visible = p.visible;
-            e.bone_mask = cfg.skeleton ? read_bones(p.pawn, p.origin, e.bones) : 0;
+            if (cfg.skeleton)
+                fill_skeleton(e, p.pawn);
+            else
+                e.pairs = 0;
             std::memcpy(e.name, p.name, sizeof(e.name));
             e.name[sizeof(e.name) - 1] = '\0';
             if (cfg.weapon)
@@ -241,10 +412,13 @@ namespace
     void draw_player(ImDrawList* draw, const esp_snapshot& snap, const esp_player& e, const ImVec2& screen)
     {
         const auto& cfg = settings::g_visuals;
+        live_player live{};
+        if (!read_live_guarded(e.pawn, e.origin, live))
+            live.origin = e.origin;
         ImVec2 feet, head;
-        if (!project(snap.matrix, e.origin, screen, feet))
+        if (!project(snap.matrix, live.origin, screen, feet))
             return;
-        if (!project(snap.matrix, math::vector3{ e.origin.x, e.origin.y, e.origin.z + e.height + head_padding }, screen, head))
+        if (!project(snap.matrix, math::vector3{ live.origin.x, live.origin.y, live.origin.z + e.height + head_padding }, screen, head))
             return;
         const float h = feet.y - head.y;
         if (h < 4.f || h > 4000.f)
@@ -296,13 +470,17 @@ namespace
             outlined_text(draw, ImVec2(feet.x, below), IM_COL32(200, 200, 200, 255), t, true);
         }
 
-        if (cfg.skeleton && e.bone_mask)
-            for (const auto& pair : skeleton_pairs)
+        if (cfg.skeleton && live.bones)
+            for (int i = 0; i < e.pairs; ++i)
             {
-                if (!(e.bone_mask & (1u << pair.a)) || !(e.bone_mask & (1u << pair.b)))
+                math::vector3 wa{};
+                math::vector3 wb{};
+                if (!read_bone(live.bones, e.pair[i * 2], live.origin, wa) || !read_bone(live.bones, e.pair[i * 2 + 1], live.origin, wb))
+                    continue;
+                if ((wa - wb).length_sqr() > max_segment * max_segment)
                     continue;
                 ImVec2 sa, sb;
-                if (project(snap.matrix, e.bones[pair.a], screen, sa) && project(snap.matrix, e.bones[pair.b], screen, sb))
+                if (project(snap.matrix, wa, screen, sa) && project(snap.matrix, wb, screen, sb))
                     draw->AddLine(sa, sb, color, 1.2f);
             }
 
@@ -345,6 +523,9 @@ namespace features::visuals
         }
         if (!view.valid)
             return;
+        math::view_matrix live{};
+        if (read_view_matrix(live))
+            view.matrix = live;
 
         const ImVec2 screen = ImGui::GetIO().DisplaySize;
         if (screen.x < 1.f || screen.y < 1.f)

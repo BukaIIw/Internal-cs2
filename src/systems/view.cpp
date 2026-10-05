@@ -61,14 +61,6 @@ namespace
         event.pitch = target.x;
         event.yaw = yaw;
     }
-
-    math::qangle lerp_angle(const math::qangle& from, const math::qangle& to, float t)
-    {
-        const math::qangle a = math::helpers::sanitized(from);
-        const math::qangle b = math::helpers::sanitized(to);
-        const float yaw_delta = math::helpers::normalized_angle(b.y - a.y);
-        return math::helpers::sanitized({ a.x + (b.x - a.x) * t, a.y + yaw_delta * t, 0.f });
-    }
 }
 
 namespace systems
@@ -197,19 +189,13 @@ namespace systems
         if (m_request.active && (m_request.silent || late_aim))
         {
             int first = 0;
-            if (m_fire && m_request.silent && !smooth_silent && !late_aim)
+            if (m_fire && m_request.silent && !late_aim)
             {
                 const int index = cmd.attack1_index();
                 first = index >= 0 && index < count ? index : std::max(0, count - 1);
             }
             for (int i = first; i < count; ++i)
-            {
-                math::qangle angle = m_request.angle;
-                math::qangle from{};
-                if (m_request.silent && smooth_silent && m_request.angle.z == 0.f && count > 1 && cmd.history_angles(i, from) && from.is_valid())
-                    angle = lerp_angle(from, m_request.angle, static_cast<float>(i + 1) / static_cast<float>(count));
-                cmd.set_history_angles(i, angle);
-            }
+                cmd.set_history_angles(i, m_request.angle);
             if (late_aim)
             {
                 g_input.set_view_angles(m_request.angle);

@@ -64,7 +64,6 @@ namespace settings
             bool enabled = false;
             keys::bind key{ 0, keys::mode::always };
             bool silent = true;
-            bool silent_smooth = false;
             bool autofire = true;
             bool autowall = false;
             bool autostop = true;

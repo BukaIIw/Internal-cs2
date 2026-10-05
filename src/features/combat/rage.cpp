@@ -399,7 +399,6 @@ namespace features::combat
             return;
 
         const settings::combat::rage& cfg = settings::rage_for(ctx.group);
-        systems::g_view.smooth_silent = cfg.silent_smooth;
         if (!ctx.valid || !ctx.gun || !ctx.eye.is_valid() || !systems::g_tracing.ready())
             return;
         const systems::local_player::data local = systems::g_local.get();
