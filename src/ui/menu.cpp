@@ -251,6 +251,7 @@ namespace
 
         ui::begin_card("Overlay##legit", icon::Eye);
         ui::toggle("Draw FOV circle", &settings::g_visuals.fov_circle);
+        ui::toggle("Spread circle", &settings::g_visuals.spread_circle);
         ui::end_card();
         ui::end_columns();
     }

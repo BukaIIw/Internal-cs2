@@ -92,7 +92,7 @@ namespace systems
         if (m_request.active && priority <= m_request.priority)
             return false;
         m_request.angle = math::helpers::sanitized(angle);
-        m_request.angle.z = math::helpers::normalized_angle(angle.z);
+        m_request.angle.z = 0.f;
         m_request.active = true;
         m_request.silent = silent;
         m_request.priority = priority;

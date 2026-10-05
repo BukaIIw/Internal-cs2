@@ -755,6 +755,7 @@ void settings::register_all()
     add("visuals.glow_hidden_color", g_visuals.glow_hidden);
     add("visuals.glow_team_color", g_visuals.glow_team);
     add("visuals.fov_circle", g_visuals.fov_circle);
+    add("visuals.spread_circle", g_visuals.spread_circle);
     add("visuals.grenade_prediction", g_visuals.grenade_prediction);
     add("visuals.grenade_color", g_visuals.grenade_color);
     add("hands.arms", g_visuals.hands_tint);

@@ -161,6 +161,7 @@ namespace settings
         color glow_hidden{ 0.95f, 0.35f, 0.35f, 0.85f };
         color glow_team{ 0.35f, 0.60f, 1.f, 0.85f };
         bool fov_circle = false;
+        bool spread_circle = false;
         bool hands_tint = false;
         color hands_color{ 1.f, 1.f, 1.f, 1.f };
         bool weapon_tint = false;

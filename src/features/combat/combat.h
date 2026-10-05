@@ -110,6 +110,18 @@ namespace features::combat
         int m_random_ticks = 0;
     };
 
+    struct spread_preview
+    {
+        bool valid = false;
+        bool has_bullet = false;
+        math::vector3 eye{};
+        math::vector3 forward{};
+        math::vector3 bullet{};
+        float tangent = 0.f;
+    };
+
+    spread_preview spread_view();
+
     class trigger
     {
     public:

@@ -14,6 +14,7 @@
 #include <Windows.h>
 #include <algorithm>
 #include <cstdint>
+#include <mutex>
 
 namespace
 {
@@ -31,6 +32,33 @@ namespace
 
     hitbox::set g_boxes{};
     hitbox::set g_safe{};
+    std::mutex g_preview_mutex{};
+    spread_preview g_preview{};
+
+    void publish(const spread_preview& preview)
+    {
+        std::lock_guard lock(g_preview_mutex);
+        g_preview = preview;
+    }
+
+    void update_preview(const weapon_context& ctx, bool alive)
+    {
+        spread_preview preview{};
+        if (!settings::g_visuals.spread_circle || !alive || !ctx.valid || !ctx.gun || !ctx.eye.is_valid())
+        {
+            publish(preview);
+            return;
+        }
+        const systems::view::request& request = systems::g_view.current();
+        const math::qangle base = request.active ? request.angle : systems::g_view.original();
+        const math::qangle recoil = detail::recoil(ctx);
+        math::helpers::angle_vectors(math::helpers::sanitized(base + recoil), preview.forward);
+        preview.eye = ctx.eye;
+        preview.tangent = std::max(0.f, ctx.inaccuracy + ctx.spread);
+        preview.has_bullet = spread::available() && spread::bullet(ctx, base, recoil, ctx.tick_base, preview.bullet);
+        preview.valid = preview.forward.is_valid() && std::isfinite(preview.tangent);
+        publish(preview);
+    }
 
     bool resolve(const systems::tracing::result& hit, const math::vector3& eye, const math::vector3& forward, float range, crosshair_hit& out)
     {
@@ -116,8 +144,15 @@ namespace
 
 namespace features::combat
 {
+    spread_preview spread_view()
+    {
+        std::lock_guard lock(g_preview_mutex);
+        return g_preview;
+    }
+
     void trigger::on_create_move(systems::input::frame& frame)
     {
+        update_preview(g_shared.ctx(), frame.valid() && systems::g_local.get().is_alive);
         const settings::combat::trigger& global = settings::g_trigger;
         if (!frame.valid() || !keys::active(global.enabled, global.key))
         {
@@ -139,6 +174,9 @@ namespace features::combat
         const math::qangle angle = math::helpers::sanitized(base + detail::recoil(ctx));
         math::vector3 forward{};
         math::helpers::angle_vectors(angle, forward);
+        math::vector3 seeded{};
+        if (cfg.seed_check && spread::available() && spread::bullet(ctx, base, detail::recoil(ctx), ctx.tick_base, seeded))
+            forward = seeded;
         const systems::tracing::result hit = systems::g_tracing.trace_line(ctx.eye, ctx.eye + forward * ctx.range, local.pawn, cstypes::masks::shot);
         systems::entities::player player{};
         crosshair_hit target{};

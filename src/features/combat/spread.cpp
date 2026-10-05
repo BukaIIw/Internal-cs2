@@ -278,18 +278,11 @@ namespace features::combat::spread
                         math::vector3 f{};
                         math::vector3 r{};
                         math::vector3 u{};
-                        math::helpers::angle_vectors(shot, f, r, u);
-                        const float along = dir.dot(f);
-                        if (!(along > 0.f))
-                            continue;
-                        const math::vector3 need = dir / along - f;
-                        const float roll = math::rad2deg(std::atan2(y[0], x[0]) - std::atan2(need.dot(u), need.dot(r)));
-                        shot.z = math::helpers::normalized_angle(roll);
+                        shot.z = 0.f;
                         math::helpers::angle_vectors(shot, f, r, u);
                         const math::vector3 bullet = (f + r * x[0] + u * y[0]).normalized();
                         if (bullet.dot(dir) < min_alignment)
                             continue;
-                        view.z = shot.z;
                         out = view;
                         return true;
                     }

@@ -36,6 +36,7 @@ namespace
     constexpr float units_to_meters = 0.0254f;
     constexpr float box_aspect = 0.45f;
     constexpr float max_fov_circle = 89.f;
+    constexpr float spread_distance = 1000.f;
     constexpr int max_players = 64;
     constexpr int max_skeleton_bones = 192;
     constexpr int min_skeleton_bones = 8;
@@ -333,7 +334,7 @@ namespace
         snap.count = 0;
 
         const auto& cfg = settings::g_visuals;
-        if (!cfg.esp && !cfg.fov_circle)
+        if (!cfg.esp && !cfg.fov_circle && !cfg.spread_circle)
             return;
 
         const auto local = systems::g_local.get();
@@ -423,6 +424,31 @@ namespace
         const float radius = std::tan(math::deg2rad(fov)) / (aspect * 0.75f) * screen.x * 0.5f;
         if (radius > 0.f && radius < screen.x)
             draw->AddCircle(ImVec2(screen.x * 0.5f, screen.y * 0.5f), radius, IM_COL32(255, 255, 255, 90), 64);
+    }
+
+    void draw_spread_circle(ImDrawList* draw, const math::view_matrix& matrix, const ImVec2& screen)
+    {
+        const features::combat::spread_preview p = features::combat::spread_view();
+        if (!p.valid)
+            return;
+        const math::vector3 helper = std::fabs(p.forward.z) < 0.9f ? math::vector3{ 0.f, 0.f, 1.f } : math::vector3{ 1.f, 0.f, 0.f };
+        const math::vector3 right = math::vector3{ p.forward.y * helper.z - p.forward.z * helper.y, p.forward.z * helper.x - p.forward.x * helper.z, p.forward.x * helper.y - p.forward.y * helper.x }.normalized();
+        ImVec2 center{};
+        ImVec2 edge{};
+        if (!project(matrix, p.eye + p.forward * spread_distance, screen, center) || !project(matrix, p.eye + (p.forward + right * p.tangent) * spread_distance, screen, edge))
+            return;
+        const float radius = std::sqrt((edge.x - center.x) * (edge.x - center.x) + (edge.y - center.y) * (edge.y - center.y));
+        if (std::isfinite(radius) && radius < screen.x)
+        {
+            draw->AddCircleFilled(center, radius, IM_COL32(255, 255, 255, 18), 64);
+            draw->AddCircle(center, radius, IM_COL32(255, 255, 255, 120), 64);
+        }
+        ImVec2 dot{};
+        if (p.has_bullet && project(matrix, p.eye + p.bullet * spread_distance, screen, dot))
+        {
+            draw->AddCircleFilled(dot, 2.5f, IM_COL32(255, 80, 80, 230), 12);
+            draw->AddCircle(dot, 3.5f, IM_COL32(0, 0, 0, 160), 12);
+        }
     }
 
     ImU32 with_alpha(ImU32 color, int alpha)
@@ -648,6 +674,8 @@ namespace features::visuals
 
         if (settings::g_visuals.fov_circle)
             draw_fov_circle(draw, screen);
+        if (settings::g_visuals.spread_circle)
+            draw_spread_circle(draw, view.matrix, screen);
 
         if (!settings::g_visuals.esp)
             return;
