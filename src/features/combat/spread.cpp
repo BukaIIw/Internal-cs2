@@ -18,6 +18,8 @@ namespace
     constexpr int circle_steps = 96;
     constexpr float cell_slack = 0.02f;
     constexpr float min_alignment = 0.9999995f;
+    constexpr int solve_iterations = 6;
+    constexpr int solve_passes = 2;
 
     class ran1
     {
@@ -192,6 +194,7 @@ namespace features::combat::spread
         const float base_yaw = std::round(base.y / bucket_size) * bucket_size;
         const int bullets = std::clamp(ctx.bullets, 1, max_bullets);
 
+        for (int pass = 0; pass < solve_passes; ++pass)
         for (int ring = 0; ring <= std::max(pitch_range, yaw_range); ++ring)
         {
             for (int dp = -ring; dp <= ring; ++dp)
@@ -225,6 +228,34 @@ namespace features::combat::spread
                     const float theta_deg = math::rad2deg(theta);
                     if (theta_deg < std::sqrt(near_p * near_p + near_y * near_y) - cell_slack || theta_deg > std::sqrt(far_p * far_p + far_y * far_y) + cell_slack)
                         continue;
+
+                    if (pass == 0)
+                    {
+                        math::qangle shot{ target.x, target.y, 0.f };
+                        math::vector3 f{};
+                        math::vector3 r{};
+                        math::vector3 u{};
+                        for (int i = 0; i < solve_iterations; ++i)
+                        {
+                            math::helpers::angle_vectors(shot, f, r, u);
+                            const math::qangle got = math::helpers::vector_angles((f + r * x[0] + u * y[0]).normalized());
+                            shot.x += target.x - got.x;
+                            shot.y = math::helpers::normalized_angle(shot.y + math::helpers::normalized_angle(target.y - got.y));
+                        }
+                        const math::qangle view{ shot.x - recoil.x, math::helpers::normalized_angle(shot.y - recoil.y), 0.f };
+                        if (view.x < -89.f || view.x > 89.f)
+                            continue;
+                        std::uint32_t check = 0;
+                        if (!call_seed(seed_function, view, tick, check))
+                            return false;
+                        if (check != seed)
+                            continue;
+                        math::helpers::angle_vectors(shot, f, r, u);
+                        if ((f + r * x[0] + u * y[0]).normalized().dot(dir) < min_alignment)
+                            continue;
+                        out = view;
+                        return true;
+                    }
 
                     for (int step = 0; step < circle_steps; ++step)
                     {

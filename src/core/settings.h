@@ -84,6 +84,7 @@ namespace settings
             float force_shot_min_spread = 0.5f;
             bool prefer_body = false;
             bool nospread = false;
+            bool seed_check = true;
             bool teammates = false;
             bool doubletap = false;
             keys::bind doubletap_key{ 0, keys::mode::toggle };
@@ -117,6 +118,7 @@ namespace settings
             std::uint32_t hitboxes = hb_all;
             int minimum_damage = 1;
             int hitchance = 0;
+            bool seed_check = true;
             bool teammates = false;
         };
     }

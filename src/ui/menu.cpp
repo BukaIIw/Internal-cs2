@@ -173,6 +173,7 @@ namespace
         ui::flags("Autostop options", &rage.autostop_flags, autostop_names, autostop_bits, static_cast<int>(std::size(autostop_names)));
         ui::toggle("Autoscope", &rage.autoscope);
         ui::toggle("No spread", &rage.nospread);
+        ui::toggle("Seed check##rage", &rage.seed_check);
         ui::end_card();
 
         ui::begin_card("Force shot##rage", icon::Sliders);
@@ -194,6 +195,8 @@ namespace
         ui::value("Hit chance", "%.0f%%", debug.hitchance);
         ui::value("Fired", "%s", debug.fired ? "yes" : "no");
         ui::value("No spread", "%s", debug.nospread == 1 ? "ok" : debug.nospread == 2 ? "failed" : "-");
+        ui::value("Seed", "%s", debug.seed == 1 ? "hit" : debug.seed == 0 ? "miss" : "-");
+        ui::value("Seed tick delta", "%d", debug.seed_delta);
         ui::end_card();
         ui::end_columns();
     }
@@ -240,6 +243,7 @@ namespace
         ui::slider("Delay##trigger", &trigger.delay, 0, 300, "%d ms");
         ui::slider("Minimum damage##trigger", &trigger.minimum_damage, 1, 100, "%d hp");
         ui::slider("Hit chance##trigger", &trigger.hitchance, 0, 100, "%d%%");
+        ui::toggle("Seed check##trigger", &trigger.seed_check);
         hitbox_flags("Hitboxes##trigger", &trigger.hitboxes);
         ui::toggle("Teammates##trigger", &trigger.teammates);
         ui::end_card();

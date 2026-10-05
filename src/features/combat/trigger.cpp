@@ -2,6 +2,7 @@
 #include "combat_detail.h"
 #include "hitbox.h"
 #include "hitchance.h"
+#include "spread.h"
 #include "../../core/cstypes.h"
 #include "../../core/keys.h"
 #include "../../core/math.h"
@@ -88,12 +89,13 @@ namespace
         return found;
     }
 
-    bool lethal_enough(const settings::combat::trigger& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const crosshair_hit& hit)
+    bool lethal_enough(const settings::combat::trigger& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const crosshair_hit& hit, const math::qangle& view)
     {
         const float required = static_cast<float>(std::max(1, std::min(cfg.minimum_damage, player.health)));
         if (detail::damage(ctx, player, hit.group, hit.distance) < required)
             return false;
-        if (cfg.hitchance <= 0)
+        const bool seed = cfg.seed_check && spread::available();
+        if (cfg.hitchance <= 0 && !seed)
             return true;
         hitchance::request request{};
         request.local = local_pawn;
@@ -104,7 +106,9 @@ namespace
         request.minimum_damage = required;
         request.target_health = static_cast<float>(player.health);
         request.range = ctx.range;
-        return hitchance::evaluate(request, static_cast<float>(cfg.hitchance) / percent).pass;
+        if (seed && hitchance::seed_hit(request, view, detail::recoil(ctx), ctx.tick_base) == 0)
+            return false;
+        return cfg.hitchance <= 0 || hitchance::evaluate(request, static_cast<float>(cfg.hitchance) / percent).pass;
     }
 }
 
@@ -155,7 +159,7 @@ namespace features::combat
             m_seen = now;
         if (now - m_seen < static_cast<std::uint64_t>(std::max(0, cfg.delay)))
             return;
-        if (!ctx.can_fire || !lethal_enough(cfg, player, local.pawn, ctx, target))
+        if (!ctx.can_fire || !lethal_enough(cfg, player, local.pawn, ctx, target, base))
             return;
         if (ctx.def == cstypes::weapon_id::revolver && !(ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1))
         {

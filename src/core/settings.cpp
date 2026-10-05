@@ -701,6 +701,7 @@ void settings::register_all()
         add(group_key(prefix, "rage.force_shot_min_spread"), rage.force_shot_min_spread);
         add(group_key(prefix, "hitbox.prefer_body"), rage.prefer_body);
         add(group_key(prefix, "nospread.enabled"), rage.nospread);
+        add(group_key(prefix, "rage.seed_check"), rage.seed_check);
         add(group_key(prefix, "rage.teammates"), rage.teammates);
 
         add(group_key(prefix, "aim.legit_fov"), legit.fov);
@@ -717,6 +718,7 @@ void settings::register_all()
         add(group_key(prefix, "trigger.hitboxes"), trigger.hitboxes);
         add(group_key(prefix, "aim.trigger_min_damage"), trigger.minimum_damage);
         add(group_key(prefix, "trigger.hitchance"), trigger.hitchance);
+        add(group_key(prefix, "trigger.seed_check"), trigger.seed_check);
         add(group_key(prefix, "trigger.teammates"), trigger.teammates);
     }
 

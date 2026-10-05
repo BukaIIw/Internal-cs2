@@ -30,4 +30,6 @@ namespace features::combat::hitchance
     };
 
     result evaluate(const request& in, float threshold);
+    int seed_hit(const request& in, const math::qangle& view, const math::qangle& recoil, int tick);
+    void reset();
 }

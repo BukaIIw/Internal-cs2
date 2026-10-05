@@ -260,6 +260,19 @@ namespace systems
         }
     }
 
+    void view::cancel(input::usercmd& cmd)
+    {
+        m_fire = false;
+        m_hold = false;
+        m_applied_attack = false;
+        if (!cmd)
+            return;
+        cmd.buttons() &= ~attack;
+        cmd.buttons_changed() &= ~attack;
+        cmd.set_base_buttons(0, attack);
+        cmd.set_attack1_index(-1);
+    }
+
     bool view::user_attack() const
     {
         return g_user_press;

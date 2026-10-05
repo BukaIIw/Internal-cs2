@@ -5,6 +5,7 @@
 #include "hitchance.h"
 #include "shots.h"
 #include "spread.h"
+#include "../../core/convar.h"
 #include "../../core/cstypes.h"
 #include "../../core/keys.h"
 #include "../../core/math.h"
@@ -30,20 +31,25 @@ namespace
     constexpr int server_ticks = 1;
     constexpr int server_shoot_window = 4;
     constexpr int scope_wait_ticks = 16;
-    constexpr int autostop_ticks = 1;
+    constexpr int max_stop_ticks = 8;
+    constexpr float accurate_speed_fraction = 0.34f;
+    constexpr float default_friction = 5.2f;
+    constexpr float default_stop_speed = 80.f;
+    constexpr float default_accelerate = 5.5f;
     constexpr int backtrack_scans = 3;
     constexpr int landing_ticks = 2;
     constexpr float scope_release_when = 0.5f;
     constexpr float damage_tolerance = 1.f;
     constexpr float percent = 100.f;
     constexpr int point_budget = 192;
-    constexpr int autowall_budget = 24;
-    constexpr int autowall_per_target = 8;
+    constexpr int autowall_budget = 40;
+    constexpr int autowall_per_target = 16;
     constexpr std::size_t primary_targets = 2;
     constexpr double scan_budget_ms = 2.5;
     constexpr float sort_center_height = 36.f;
     constexpr std::size_t player_slots = 65;
     constexpr int confirm_ticks = 16;
+    constexpr float angle_epsilon = 1e-3f;
 
     struct unconfirmed
     {
@@ -82,6 +88,10 @@ namespace
         int scope_wait = 0;
         bool nospread = false;
         bool fired = false;
+        bool verify = false;
+        bool cancel = false;
+        int seed_tick = 0;
+        hitchance::request seed_request{};
         math::qangle desired{};
         math::qangle recoil{};
         math::qangle aim{};
@@ -290,6 +300,51 @@ namespace
             systems::g_view.hold_attack();
     }
 
+    float convar_or(const convars::convar* cvar, float fallback)
+    {
+        if (!cvar || !cvar->value)
+            return fallback;
+        const float value = cvar->get<float>();
+        return std::isfinite(value) && value > 0.f ? value : fallback;
+    }
+
+    int stop_ticks(const weapon_context& ctx, const math::vector3& velocity, float surface_friction)
+    {
+        float speed = velocity.length_2d();
+        const float max_speed = std::max(ctx.max_speed, 1.f);
+        const float accurate = max_speed * accurate_speed_fraction;
+        const float friction = convar_or(CONVAR("sv_friction"), default_friction) * surface_friction;
+        const float stop_speed = convar_or(CONVAR("sv_stopspeed"), default_stop_speed);
+        const float accelerate = convar_or(CONVAR("sv_accelerate"), default_accelerate) * max_speed * cstypes::tick_interval * surface_friction;
+        int ticks = 0;
+        while (std::isfinite(speed) && speed > accurate && ticks < max_stop_ticks)
+        {
+            speed = std::max(0.f, speed - std::max(speed, stop_speed) * friction * cstypes::tick_interval);
+            speed = std::max(0.f, speed - accelerate);
+            ++ticks;
+        }
+        return ticks;
+    }
+
+    int shot_tick(systems::input::usercmd& cmd, int& index)
+    {
+        index = -1;
+        const int count = cmd.history_size();
+        const int tick_base = g_shared.ctx().tick_base;
+        if (count <= 0 || tick_base <= 0)
+            return 0;
+        if (settings::g_rage.tick_source != server_ticks)
+        {
+            index = count - 1;
+            return cmd.history_player_tick(index);
+        }
+        const int attack = cmd.attack1_index();
+        if (attack < 0 || attack >= count)
+            return tick_base;
+        index = attack;
+        return std::clamp(cmd.history_player_tick(attack), tick_base - server_shoot_window, tick_base);
+    }
+
     int required_damage(int configured, int health)
     {
         return std::max(1, std::min(configured, health));
@@ -330,6 +385,8 @@ namespace features::combat
         debug = {};
         g_state.nospread = false;
         g_state.fired = false;
+        g_state.verify = false;
+        g_state.cancel = false;
         confirm_shot(g_shared.ctx());
         shots::update();
 
@@ -457,6 +514,20 @@ namespace features::combat
         }
 
         const bool nospread = cfg.nospread && cfg.silent && spread::available();
+        const bool seed = cfg.seed_check && !nospread && spread::available();
+        hitchance::request request{};
+        request.local = local.pawn;
+        request.target = &best.player;
+        request.boxes = &g_best_boxes;
+        request.shoot = ctx.eye;
+        request.point = best.point;
+        request.minimum_damage = static_cast<float>(required_damage(configured, best.player.health));
+        request.target_health = static_cast<float>(best.player.health);
+        request.range = ctx.range;
+        request.penetration = autowall && best.penetrated;
+        request.force_shot = cfg.force_shot;
+        request.force_shot_iterations = cfg.force_shot_iterations;
+        request.force_shot_min_spread = cfg.force_shot_min_spread;
         bool pass = false;
         math::vector3 point = best.point;
         if ((ctx.can_fire || g_doubletap.charged(ctx)) && !scoping)
@@ -468,19 +539,6 @@ namespace features::combat
             }
             else
             {
-                hitchance::request request{};
-                request.local = local.pawn;
-                request.target = &best.player;
-                request.boxes = &g_best_boxes;
-                request.shoot = ctx.eye;
-                request.point = best.point;
-                request.minimum_damage = static_cast<float>(required_damage(configured, best.player.health));
-                request.target_health = static_cast<float>(best.player.health);
-                request.range = ctx.range;
-                request.penetration = autowall && best.penetrated;
-                request.force_shot = cfg.force_shot;
-                request.force_shot_iterations = cfg.force_shot_iterations;
-                request.force_shot_min_spread = cfg.force_shot_min_spread;
                 const hitchance::result result = hitchance::evaluate(request, static_cast<float>(cfg.hitchance) / percent);
                 pass = result.pass;
                 if (result.point.is_valid())
@@ -491,12 +549,20 @@ namespace features::combat
 
         const math::qangle desired = math::helpers::sanitized(math::helpers::calc_angle(ctx.eye, point));
         const math::qangle aim = math::helpers::sanitized(desired - recoil);
+        if (pass && seed)
+        {
+            debug.seed = hitchance::seed_hit(request, aim, recoil, ctx.tick_base);
+            if (debug.seed == 0)
+                pass = false;
+        }
 
         const systems::prediction::state& pre = systems::g_prediction.pre();
         const std::uint32_t flags = pre.valid ? pre.flags : local.flags;
         const std::uint32_t stop_flags = cfg.autostop_flags;
         const bool between = (stop_flags & settings::combat::as_between_shots) != 0;
-        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && (between || ctx.ticks_to_fire <= autostop_ticks);
+        const math::vector3 stop_velocity = pre.valid ? pre.networked_velocity : local.velocity;
+        const int needed_ticks = stop_ticks(ctx, stop_velocity, pre.valid ? pre.surface_friction : 1.f);
+        const bool ready_soon = ctx.clip > 0 && !ctx.reloading && (between || ctx.ticks_to_fire <= needed_ticks + 1);
         const bool lethal_ok = (stop_flags & settings::combat::as_lethal) == 0 || effective(best) >= static_cast<float>(best.player.health);
         const bool grounded = (flags & cstypes::entity_flags::on_ground) != 0;
         bool air_ok = (stop_flags & settings::combat::as_air) != 0;
@@ -541,6 +607,11 @@ namespace features::combat
             shot.eye = ctx.eye;
             shot.recoil = recoil;
             shot.boxes = g_best_boxes;
+            g_state.verify = seed;
+            g_state.seed_tick = ctx.tick_base;
+            g_state.seed_request = request;
+            g_state.seed_request.target = &shot.player;
+            g_state.seed_request.boxes = &shot.boxes;
         }
         if (revolver && cfg.autofire && !m_firing)
             cock_revolver(ctx);
@@ -556,10 +627,8 @@ namespace features::combat
         g_state.nospread = false;
         if (!cmd)
             return;
-        const int count = cmd.history_size();
-        if (count <= 0)
-            return;
-        const int tick = cmd.history_player_tick(count - 1);
+        int index = -1;
+        const int tick = shot_tick(cmd, index);
         if (tick <= 0)
             return;
         math::qangle view = g_state.aim;
@@ -573,44 +642,83 @@ namespace features::combat
                 view = angle;
             }
             else
+            {
                 debug.nospread = 2;
+                g_state.cancel = true;
+                return;
+            }
         }
         finish_shot(view, tick);
     }
 
     void rage::on_create_move_late(systems::input::usercmd& cmd)
     {
-        if (!g_state.fired || settings::g_rage.tick_source != server_ticks)
-            return;
-        g_state.fired = false;
-        const bool nospread = g_state.nospread;
-        g_state.nospread = false;
-        if (!cmd)
-            return;
-        const int count = cmd.history_size();
-        const int tick_base = g_shared.ctx().tick_base;
-        if (count <= 0 || tick_base <= 0)
-            return;
-        const int index = cmd.attack1_index();
-        const bool indexed = index >= 0 && index < count;
-        const int tick = indexed ? std::clamp(cmd.history_player_tick(index), tick_base - server_shoot_window, tick_base) : tick_base;
-        math::qangle view = g_state.aim;
-        if (nospread)
+        if (g_state.fired && settings::g_rage.tick_source == server_ticks)
         {
-            math::qangle angle{};
-            if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+            g_state.fired = false;
+            const bool nospread = g_state.nospread;
+            g_state.nospread = false;
+            int index = -1;
+            const int tick = cmd ? shot_tick(cmd, index) : 0;
+            if (tick > 0)
             {
-                for (int i = indexed ? index : 0; i < count; ++i)
-                    cmd.set_history_angles(i, angle);
-                if (!indexed)
-                    cmd.set_base_angles(angle);
-                debug.nospread = 1;
-                view = angle;
+                math::qangle view = g_state.aim;
+                bool ready = true;
+                if (nospread)
+                {
+                    math::qangle angle{};
+                    if (spread::compensate(g_shared.ctx(), g_state.desired, g_state.recoil, tick, angle))
+                    {
+                        const int count = cmd.history_size();
+                        for (int i = index >= 0 ? index : 0; i < count; ++i)
+                            cmd.set_history_angles(i, angle);
+                        if (index < 0)
+                            cmd.set_base_angles(angle);
+                        debug.nospread = 1;
+                        view = angle;
+                    }
+                    else
+                    {
+                        debug.nospread = 2;
+                        g_state.cancel = true;
+                        ready = false;
+                    }
+                }
+                if (ready)
+                    finish_shot(view, tick);
             }
-            else
-                debug.nospread = 2;
         }
-        finish_shot(view, tick);
+
+        if (cmd && g_state.cancel)
+            cancel_shot(cmd);
+        else if (cmd && g_state.verify)
+        {
+            int index = -1;
+            const int tick = shot_tick(cmd, index);
+            math::qangle view{};
+            const bool angles = index >= 0 ? cmd.history_angles(index, view) : cmd.base_angles(view);
+            if (tick > 0 && angles && view.is_valid())
+            {
+                debug.seed_delta = tick - g_state.seed_tick;
+                view.z = 0.f;
+                const bool moved = std::fabs(view.x - g_state.aim.x) > angle_epsilon || std::fabs(math::helpers::normalized_angle(view.y - g_state.aim.y)) > angle_epsilon;
+                if ((tick != g_state.seed_tick || moved) && hitchance::seed_hit(g_state.seed_request, view, g_state.recoil, tick) == 0)
+                {
+                    debug.seed = 0;
+                    cancel_shot(cmd);
+                }
+            }
+        }
+        g_state.cancel = false;
+        g_state.verify = false;
+    }
+
+    void rage::cancel_shot(systems::input::usercmd& cmd)
+    {
+        systems::g_view.cancel(cmd);
+        g_state.confirm = {};
+        m_firing = false;
+        debug.fired = false;
     }
 
     void rage::finish_shot(const math::qangle& view, int tick)
@@ -638,5 +746,6 @@ namespace features::combat
         g_state = {};
         backtrack::reset();
         shots::reset();
+        hitchance::reset();
     }
 }

@@ -72,11 +72,14 @@ namespace features::combat
             float damage = 0.f;
             float hitchance = 0.f;
             bool fired = false;
+            int seed = -1;
+            int seed_delta = 0;
         };
         debug_info debug{};
 
     private:
         void finish_shot(const math::qangle& view, int tick);
+        void cancel_shot(systems::input::usercmd& cmd);
 
         bool m_firing = false;
         bool m_stop = false;

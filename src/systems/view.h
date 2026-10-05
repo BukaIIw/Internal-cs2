@@ -23,6 +23,7 @@ namespace systems
         bool fire(float when = -1.f);
         void block_fire() { m_block_fire = true; }
         void suppress_fire() { m_suppress = true; }
+        void cancel(input::usercmd& cmd);
         void hold_attack() { m_cock = true; }
         void set_render_tick(int tick) { m_render_tick = tick; }
 
