@@ -514,7 +514,7 @@ namespace
             draw_zone(draw, snap.matrix, b, shift, eye, screen, with_alpha(color, zone_full_alpha), with_alpha(color, zone_outline_alpha));
             if (rage.multipoint & b.bit)
             {
-                const float scale = b.group == cstypes::hitgroup::head ? rage.head_scale : rage.body_scale;
+                const float scale = std::min(b.group == cstypes::hitgroup::head ? rage.head_scale : rage.body_scale, rage.safe_scale);
                 draw_zone(draw, snap.matrix, hitbox::scaled(b, scale), shift, eye, screen, with_alpha(color, zone_multipoint_alpha), 0);
             }
             draw_zone(draw, snap.matrix, hitbox::scaled(b, rage.safe_scale), shift, eye, screen, with_alpha(color, zone_safe_alpha), 0);

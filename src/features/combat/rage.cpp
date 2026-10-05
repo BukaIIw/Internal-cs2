@@ -214,7 +214,7 @@ namespace
             if ((box.bit & mask) == 0)
                 continue;
             const bool multipoint = (box.bit & cfg.multipoint) != 0;
-            const int count = hitbox::points(box, ctx.eye, multipoint, cfg.head_scale, cfg.body_scale, points, hitbox::max_points);
+            const int count = hitbox::points(box, ctx.eye, multipoint, std::min(cfg.head_scale, cfg.safe_scale), std::min(cfg.body_scale, cfg.safe_scale), points, hitbox::max_points);
             for (int p = 0; p < count; ++p)
             {
                 const math::vector3& point = points[p];

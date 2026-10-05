@@ -5,8 +5,10 @@
 #include <array>
 #include <cstring>
 #include <atomic>
+#include <cstdio>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace
 {
@@ -19,7 +21,11 @@ namespace
         std::atomic<std::uint64_t> calls{ 0 };
         std::atomic<std::uint64_t> ticks{ 0 };
         std::atomic<std::uint64_t> peak{ 0 };
+        std::atomic<std::uint64_t> last_spike{ 0 };
     };
+
+    constexpr double spike_us = 4000.0;
+    constexpr std::uint64_t spike_interval_ms = 1000;
 
     constexpr int type_count = static_cast<int>(events::type::count);
 
@@ -68,6 +74,39 @@ namespace
     {
         return t >= 0 && t < type_count;
     }
+
+    void write_spike(const char* event, const char* name, double ms)
+    {
+        static const std::wstring path = [] {
+            wchar_t buffer[MAX_PATH]{};
+            const DWORD length = GetEnvironmentVariableW(L"APPDATA", buffer, MAX_PATH);
+            std::wstring dir = length > 0 && length < MAX_PATH ? std::wstring(buffer, length) : std::wstring(L".");
+            dir += L"\\Internal-cs2";
+            CreateDirectoryW(dir.c_str(), nullptr);
+            return dir + L"\\perf.log";
+        }();
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, path.c_str(), L"ab") || !file)
+            return;
+        SYSTEMTIME st{};
+        GetLocalTime(&st);
+        std::fprintf(file, "%02u:%02u:%02u.%03u %s %s %.2f ms\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, event, name, ms);
+        std::fclose(file);
+    }
+
+    void report_spike(subscriber& s, int index, std::uint64_t elapsed)
+    {
+        const double us = static_cast<double>(elapsed) * microseconds_per_tick();
+        if (us < spike_us)
+            return;
+        const std::uint64_t now = GetTickCount64();
+        std::uint64_t last = s.last_spike.load(std::memory_order_relaxed);
+        if (now - last < spike_interval_ms || !s.last_spike.compare_exchange_strong(last, now, std::memory_order_relaxed))
+            return;
+        const char* event = valid_type(index) ? g_names[index] : "?";
+        logs::Add(logs::Warning, "Spike: %s in %s %.1f ms", s.name, event, us / 1000.0);
+        write_spike(event, s.name, us / 1000.0);
+    }
 }
 
 void events::subscribe(type t, const char* name, handler h, int priority)
@@ -115,6 +154,7 @@ void events::publish(type t, void* args)
         while (elapsed > peak && !s->peak.compare_exchange_weak(peak, elapsed, std::memory_order_relaxed))
         {
         }
+        report_spike(*s, index, elapsed);
 
         if (!ok)
         {
