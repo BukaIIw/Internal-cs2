@@ -50,6 +50,7 @@ namespace
     constexpr std::size_t player_slots = 65;
     constexpr int confirm_ticks = 16;
     constexpr float angle_epsilon = 1e-3f;
+    constexpr int hold_aim_ticks = 3;
 
     struct unconfirmed
     {
@@ -293,13 +294,24 @@ namespace
         return tr.ok && tr.fraction < 1.f;
     }
 
+    bool revolver_primed(const weapon_context& ctx)
+    {
+        return ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick >= ctx.tick_base && ctx.revolver_ready_tick <= ctx.tick_base + 1;
+    }
+
     void cock_revolver(const weapon_context& ctx)
     {
         if (!ctx.can_fire)
             return;
-        const bool about_to_fire = ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1;
-        if (!about_to_fire)
+        if (!revolver_primed(ctx))
             systems::g_view.hold_attack();
+    }
+
+    void hold_pending_aim()
+    {
+        const unconfirmed& c = g_state.confirm;
+        if (c.active && !c.shot.nospread && c.ticks < hold_aim_ticks && c.shot.view.is_valid())
+            systems::g_view.aim(c.shot.view, true, rage_priority, "rage hold");
     }
 
     float convar_or(const convars::convar* cvar, float fallback)
@@ -390,6 +402,7 @@ namespace features::combat
         g_state.verify = false;
         g_state.cancel = false;
         confirm_shot(g_shared.ctx());
+        hold_pending_aim();
         shots::update();
 
         if (g_state.scope_wait > 0)
@@ -579,7 +592,7 @@ namespace features::combat
         const bool user_attack = frame.held(cstypes::command_buttons::in_attack);
         if (pass)
         {
-            const bool revolver_ready = !revolver || (ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1);
+            const bool revolver_ready = !revolver || revolver_primed(ctx);
             if ((cfg.autofire || user_attack) && revolver_ready)
                 m_firing = systems::g_view.fire();
             else if ((cfg.autofire || user_attack) && revolver)
