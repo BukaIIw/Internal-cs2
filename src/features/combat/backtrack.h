@@ -12,6 +12,7 @@ namespace features::combat::backtrack
         bool valid = false;
         int tick = 0;
         float simulation_time = 0.f;
+        int choked = 0;
         bool pitch_broken = false;
         math::vector3 origin{};
         hitbox::set boxes{};

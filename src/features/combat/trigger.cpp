@@ -4,10 +4,13 @@
 #include "hitchance.h"
 #include "spread.h"
 #include "../../core/cstypes.h"
+#include "../../core/hash.h"
 #include "../../core/keys.h"
 #include "../../core/math.h"
+#include "../../core/schema.h"
 #include "../../core/settings.h"
 #include "../../systems/entities.h"
+#include "../../systems/game_reads.h"
 #include "../../systems/local.h"
 #include "../../systems/tracing.h"
 #include "../../systems/view.h"
@@ -118,6 +121,29 @@ namespace
         return found;
     }
 
+    bool crosshair_entity(const settings::combat::trigger& cfg, std::uintptr_t local_pawn, const weapon_context& ctx, const math::vector3& forward, systems::entities::player& out_player, crosshair_hit& out)
+    {
+        const int index = systems::reads::field<int>(local_pawn, SCHEMA("C_CSPlayerPawn", "m_iIDEntIndex"_hash), -1);
+        if (index <= 0)
+            return false;
+        const std::uintptr_t entity = systems::g_entities.get(index);
+        if (!entity)
+            return false;
+        const systems::entities::player player = systems::g_entities.player_by_pawn(entity);
+        if (!detail::valid_target(player, local_pawn, cfg.teammates) || !hitbox::collect(player.pawn, g_boxes))
+            return false;
+        float distance = 0.f;
+        const int box = hitbox::nearest(g_boxes, ctx.eye, forward, ctx.range, distance);
+        if (box < 0 || (g_boxes.boxes[box].bit & cfg.hitboxes) == 0)
+            return false;
+        out_player = player;
+        out.group = g_boxes.boxes[box].group;
+        out.bit = g_boxes.boxes[box].bit;
+        out.distance = distance;
+        out.point = ctx.eye + forward * distance;
+        return true;
+    }
+
     bool lethal_enough(const settings::combat::trigger& cfg, const systems::entities::player& player, std::uintptr_t local_pawn, const weapon_context& ctx, const crosshair_hit& hit, const math::qangle& view)
     {
         const float required = static_cast<float>(std::max(1, std::min(cfg.minimum_damage, player.health)));
@@ -175,7 +201,7 @@ namespace features::combat
         math::vector3 forward{};
         math::helpers::angle_vectors(angle, forward);
         math::vector3 seeded{};
-        if (cfg.seed_check && spread::available() && spread::bullet(ctx, base, detail::recoil(ctx), ctx.tick_base, seeded))
+        if (cfg.seed_check && ctx.seed_synced && spread::available() && spread::bullet(ctx, base, detail::recoil(ctx), ctx.tick_base, seeded))
             forward = seeded;
         const systems::tracing::result hit = systems::g_tracing.trace_line(ctx.eye, ctx.eye + forward * ctx.range, local.pawn, cstypes::masks::shot);
         systems::entities::player player{};
@@ -186,6 +212,8 @@ namespace features::combat
             player = systems::g_entities.player_by_pawn(hit.entity);
             found = detail::valid_target(player, local.pawn, cfg.teammates) && resolve(hit, ctx.eye, forward, ctx.range, target) && (target.bit & cfg.hitboxes) != 0;
         }
+        if (!found && !cfg.seed_check)
+            found = crosshair_entity(cfg, local.pawn, ctx, forward, player, target);
         if (!found)
             found = analytic(cfg, local.pawn, ctx, forward, player, target);
         if (!found)
@@ -201,7 +229,7 @@ namespace features::combat
             return;
         if (!ctx.can_fire || !lethal_enough(cfg, player, local.pawn, ctx, target, base))
             return;
-        if (ctx.def == cstypes::weapon_id::revolver && !(ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1))
+        if (ctx.def == cstypes::weapon_id::revolver && !detail::revolver_primed(ctx))
         {
             systems::g_view.hold_attack();
             return;

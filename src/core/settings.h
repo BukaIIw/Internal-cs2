@@ -106,6 +106,7 @@ namespace settings
             bool rcs = true;
             float rcs_scale = 1.f;
             bool visible_only = true;
+            bool spotted_only = false;
             bool teammates = false;
         };
 

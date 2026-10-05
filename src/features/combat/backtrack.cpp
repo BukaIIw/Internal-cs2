@@ -24,6 +24,7 @@ namespace
     constexpr float pitch_limit = 89.5f;
     constexpr float realign_interval = 1.32f;
     constexpr float teleport_distance_sqr = 64.f * 64.f;
+    constexpr int max_choke = 64;
 
     struct track
     {
@@ -110,13 +111,24 @@ namespace features::combat::backtrack
                 continue;
             const record* last = newest(t);
             if (last && sim <= last->simulation_time)
+            {
+                if (sim < last->simulation_time)
+                {
+                    for (record& old : t.records)
+                        old.valid = false;
+                    t.count = 0;
+                }
                 continue;
+            }
+            const float old_sim = reads::field<float>(player.pawn, SCHEMA("C_BasePlayerPawn", "m_flOldSimulationTime"_hash));
+            const int choked = std::isfinite(old_sim) && old_sim > 0.f && old_sim < sim ? std::clamp(static_cast<int>(std::lround((sim - old_sim) / cstypes::tick_interval)) - 1, 0, max_choke) : 0;
 
             record& next = t.records[t.head];
             next = {};
             if (!hitbox::collect(player.pawn, next.boxes))
                 continue;
             next.simulation_time = sim;
+            next.choked = choked;
             next.tick = static_cast<int>(std::lround(sim / cstypes::tick_interval));
             next.origin = player.origin;
 

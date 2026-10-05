@@ -229,6 +229,7 @@ namespace
         ui::key_button("Randomization key", &global_legit.random_key);
         hitbox_flags("Hitboxes##legit", &legit.hitboxes);
         ui::toggle("Visible only##legit", &legit.visible_only);
+        ui::toggle("Spotted only##legit", &legit.spotted_only);
         ui::toggle("Teammates##legit", &legit.teammates);
         ui::end_card();
 

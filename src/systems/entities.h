@@ -23,6 +23,7 @@ namespace systems
             bool dormant = true;
             bool enemy = false;
             bool visible = false;
+            bool spotted = false;
             math::vector3 origin{};
             math::vector3 velocity{};
             math::vector3 mins{};

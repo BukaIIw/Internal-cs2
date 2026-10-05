@@ -9,6 +9,7 @@
 #include "../../core/patterns.h"
 #include "../../core/schema.h"
 #include "../../core/settings.h"
+#include "../../core/log.h"
 #include "../../systems/game_reads.h"
 #include "../../systems/local.h"
 #include "../../systems/prediction.h"
@@ -227,6 +228,16 @@ namespace features::combat
         ctx.full_auto = reads::field<std::uint8_t>(vdata, SCHEMA("CCSWeaponBaseVData", "m_bIsFullAuto"_hash)) != 0;
         ctx.needs_scope = ctx.type == cstypes::weapon_type::sniper;
         ctx.scoped = reads::field<std::uint8_t>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_bIsScoped"_hash)) != 0;
+        ctx.resume_zoom = reads::field<std::uint8_t>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_bResumeZoom"_hash)) != 0;
+        ctx.bolt_action = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBaseGun", "m_bNeedsBoltAction"_hash)) != 0;
+        ctx.zoom_level = std::clamp(reads::field<int>(weapon, SCHEMA("C_CSWeaponBaseGun", "m_zoomLevel"_hash)), 0, 2);
+        ctx.seed_synced = local.controller && reads::field<std::uint8_t>(local.controller, SCHEMA("CCSPlayerController", "m_bFireBulletsSeedSynchronized"_hash)) != 0;
+        static int s_seed_state = -1;
+        if (static_cast<int>(ctx.seed_synced) != s_seed_state)
+        {
+            s_seed_state = static_cast<int>(ctx.seed_synced);
+            logs::Add(logs::Info, "%s", ctx.seed_synced ? "Seed sync: on" : "Seed sync: off");
+        }
 
         ctx.mode = std::clamp(reads::field<int>(weapon, SCHEMA("C_CSWeaponBase", "m_weaponMode"_hash)), 0, weapon_mode_count - 1);
         ctx.recoil_index = sane_float(reads::field<float>(weapon, SCHEMA("C_CSWeaponBase", "m_flRecoilIndex"_hash)), 0.f, max_recoil_index, 0.f);
@@ -282,6 +293,14 @@ namespace features::combat
 
 namespace features::combat::detail
 {
+    bool revolver_primed(const weapon_context& ctx)
+    {
+        if (ctx.revolver_ready_tick <= 0 || ctx.revolver_ready_tick < ctx.tick_base)
+            return false;
+        const float ready = static_cast<float>(ctx.revolver_ready_tick - ctx.tick_base) + ctx.revolver_ready_frac;
+        return ready <= 1.f;
+    }
+
     bool valid_target(const systems::entities::player& player, std::uintptr_t local_pawn, bool teammates)
     {
         if (!player.valid || !player.alive || player.dormant || !player.pawn || player.pawn == local_pawn || player.health <= 0)

@@ -129,6 +129,8 @@ namespace features::combat
             {
                 if (!detail::valid_target(player, local.pawn, cfg.teammates))
                     continue;
+                if (cfg.spotted_only && !player.spotted)
+                    continue;
                 if (!detail::in_fov_range(reference, ctx.eye, player.origin, cfg.fov))
                     continue;
                 aim_box next{};

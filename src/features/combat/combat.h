@@ -16,6 +16,10 @@ namespace features::combat
         bool gun = false;
         bool full_auto = false;
         bool scoped = false;
+        bool resume_zoom = false;
+        bool bolt_action = false;
+        int zoom_level = 0;
+        bool seed_synced = false;
         bool needs_scope = false;
         bool can_fire = false;
         bool reloading = false;

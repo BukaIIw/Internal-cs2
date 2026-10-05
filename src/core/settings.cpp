@@ -712,6 +712,7 @@ void settings::register_all()
         add(group_key(prefix, "aim.legit_rcs"), legit.rcs);
         add(group_key(prefix, "legit.rcs_scale"), legit.rcs_scale);
         add(group_key(prefix, "legit.visible_only"), legit.visible_only);
+        add(group_key(prefix, "legit.spotted_only"), legit.spotted_only);
         add(group_key(prefix, "legit.teammates"), legit.teammates);
 
         add(group_key(prefix, "aim.trigger_delay"), trigger.delay);

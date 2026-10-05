@@ -295,19 +295,11 @@ namespace
         return tr.ok && tr.fraction < 1.f;
     }
 
-    bool revolver_primed(const weapon_context& ctx)
-    {
-        if (ctx.revolver_ready_tick <= 0 || ctx.revolver_ready_tick < ctx.tick_base)
-            return false;
-        const float ready = static_cast<float>(ctx.revolver_ready_tick - ctx.tick_base) + ctx.revolver_ready_frac;
-        return ready <= 1.f;
-    }
-
     void cock_revolver(const weapon_context& ctx)
     {
         if (!ctx.can_fire)
             return;
-        if (!revolver_primed(ctx))
+        if (!detail::revolver_primed(ctx))
             systems::g_view.hold_attack();
     }
 
@@ -520,10 +512,10 @@ namespace features::combat
 
         const bool revolver = ctx.def == cstypes::weapon_id::revolver;
         bool scoping = false;
-        if (cfg.autoscope && ctx.needs_scope && !ctx.scoped)
+        if (cfg.autoscope && ctx.needs_scope && (!ctx.scoped || ctx.zoom_level == 0))
         {
             scoping = true;
-            if (g_state.scope_wait == 0 && !frame.held(cstypes::command_buttons::in_attack2))
+            if (g_state.scope_wait == 0 && !ctx.resume_zoom && !ctx.bolt_action && !frame.held(cstypes::command_buttons::in_attack2))
             {
                 frame.press(cstypes::command_buttons::in_attack2, 0.f);
                 frame.release(cstypes::command_buttons::in_attack2, scope_release_when);
@@ -531,8 +523,8 @@ namespace features::combat
             }
         }
 
-        const bool nospread = cfg.nospread && cfg.silent && spread::available();
-        const bool seed = cfg.seed_check && !nospread && spread::available();
+        const bool nospread = cfg.nospread && cfg.silent && ctx.seed_synced && spread::available();
+        const bool seed = cfg.seed_check && !nospread && ctx.seed_synced && spread::available();
         hitchance::request request{};
         request.local = local.pawn;
         request.target = &best.player;
@@ -596,7 +588,7 @@ namespace features::combat
         const bool user_attack = frame.held(cstypes::command_buttons::in_attack);
         if (pass)
         {
-            const bool revolver_ready = !revolver || revolver_primed(ctx);
+            const bool revolver_ready = !revolver || detail::revolver_primed(ctx);
             if ((cfg.autofire || user_attack) && revolver_ready)
                 m_firing = systems::g_view.fire();
             else if ((cfg.autofire || user_attack) && revolver)

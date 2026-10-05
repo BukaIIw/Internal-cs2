@@ -263,6 +263,14 @@ namespace
         }
         out.weapon_def = reads::item_definition(reads::active_weapon(out.pawn));
         out.enemy = out.team != ctx.local_team;
+        const std::uint32_t spotted_state = SCHEMA("C_CSPlayerPawn", "m_entitySpottedState"_hash);
+        const std::uint32_t spotted_mask = 0xC;
+        if (spotted_state && ctx.local_index > 0 && ctx.local_index <= 64)
+        {
+            const int bit = ctx.local_index - 1;
+            const std::uint32_t mask = reads::field<std::uint32_t>(out.pawn + spotted_state, spotted_mask + static_cast<std::uint32_t>(bit / 32) * 4u);
+            out.spotted = (mask & (1u << (bit % 32))) != 0;
+        }
         if (ctx.trace && ctx.local_alive && out.alive && !out.dormant && (out.enemy || ctx.teammates) && index < visibility_slots)
             out.visible = cached_visible(ctx, index, out.pawn, origin);
         out.valid = true;
