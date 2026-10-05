@@ -22,6 +22,7 @@ namespace systems
         bool aim(const math::qangle& angle, bool silent, int priority, const char* owner);
         bool fire(float when = -1.f);
         void block_fire() { m_block_fire = true; }
+        void suppress_fire() { m_suppress = true; }
         void hold_attack() { m_cock = true; }
         void set_render_tick(int tick) { m_render_tick = tick; }
 
@@ -48,6 +49,7 @@ namespace systems
         bool m_cock = false;
         int m_render_tick = 0;
         bool m_block_fire = false;
+        bool m_suppress = false;
         float m_fire_when = 0.f;
         bool m_last_fired = false;
         bool m_applied_attack = false;

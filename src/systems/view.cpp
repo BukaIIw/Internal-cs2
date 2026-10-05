@@ -83,6 +83,7 @@ namespace systems
         m_cock = false;
         m_render_tick = 0;
         m_block_fire = false;
+        m_suppress = false;
         m_applied_attack = false;
         m_fire_when = 0.f;
         g_frame_aimed = false;
@@ -130,6 +131,14 @@ namespace systems
             frame.set_view(m_request.angle);
             g_input.set_view_angles(m_request.angle);
             g_frame_aimed = true;
+        }
+
+        if (!m_fire && m_suppress && !m_cock)
+        {
+            frame.remove_steps(attack);
+            frame.pressed() &= ~attack;
+            frame.down() &= ~attack;
+            return;
         }
 
         if (!m_fire)
@@ -231,6 +240,13 @@ namespace systems
             }
             m_applied_attack = true;
         }
+        else if (m_suppress && !m_cock)
+        {
+            cmd.buttons() &= ~attack;
+            cmd.buttons_changed() &= ~attack;
+            cmd.set_base_buttons(0, attack);
+            cmd.set_attack1_index(-1);
+        }
         else if (m_cock && !m_block_fire)
         {
             cmd.buttons() |= attack;
@@ -258,6 +274,7 @@ namespace systems
         m_cock = false;
         m_render_tick = 0;
         m_block_fire = false;
+        m_suppress = false;
         m_applied_attack = false;
         m_fire_when = 0.f;
         g_frame_aimed = false;

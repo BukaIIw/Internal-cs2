@@ -508,15 +508,16 @@ namespace features::combat
         }
         m_stop = cfg.autostop && ready_soon && lethal_ok && (grounded || air_ok);
 
+        const bool user_attack = frame.held(cstypes::command_buttons::in_attack);
         if (pass)
         {
-            if (cfg.autofire)
+            if (cfg.autofire || user_attack)
                 m_firing = systems::g_view.fire();
-            else
-                m_firing = frame.held(cstypes::command_buttons::in_attack);
             if (m_firing && best.tick > 0)
                 systems::g_view.set_render_tick(best.tick + 1);
         }
+        else if (user_attack && !cfg.autofire && !revolver)
+            systems::g_view.suppress_fire();
 
         if (!cfg.silent || m_firing)
             systems::g_view.aim(aim, cfg.silent, rage_priority, "rage");
