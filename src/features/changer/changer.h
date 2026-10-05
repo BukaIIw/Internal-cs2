@@ -186,6 +186,8 @@ namespace features::changer
             int seed{};
             float wear{};
             int stattrak{};
+            int refreshes{};
+            int countdown{};
         };
 
         void apply(std::uintptr_t weapon, std::uintptr_t iv, std::uint32_t handle, std::uint32_t active_handle, std::uintptr_t pawn, const settings::changer::applied_skin& skin, std::uint32_t account_id);

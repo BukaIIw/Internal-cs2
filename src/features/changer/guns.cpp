@@ -11,6 +11,9 @@ namespace
 {
     namespace changer = features::changer;
 
+    constexpr int refresh_count = 4;
+    constexpr int refresh_interval = 8;
+
     template <typename Original>
     void capture_weapon(std::uintptr_t weapon, std::uintptr_t iv, Original& original)
     {
@@ -108,10 +111,20 @@ namespace features::changer
             if (!detail::vdata_ready(weapon))
                 continue;
 
-            const applied_state wanted{ skin.paint_kit_id, detail::sanitize_seed(skin.seed), detail::sanitize_wear(skin.wear), detail::sanitize_stattrak(skin.stattrak) };
+            applied_state wanted{ skin.paint_kit_id, detail::sanitize_seed(skin.seed), detail::sanitize_wear(skin.wear), detail::sanitize_stattrak(skin.stattrak), refresh_count, refresh_interval };
             const auto applied = m_applied.find(handle);
             if (applied != m_applied.end() && same_skin(applied->second, wanted) && fallback_intact(weapon, iv, wanted.paint_kit))
+            {
+                applied_state& state = applied->second;
+                if (state.refreshes > 0 && --state.countdown <= 0)
+                {
+                    --state.refreshes;
+                    state.countdown = refresh_interval;
+                    rebuild_paint(weapon, handle, active_handle, local.pawn, g_econ_item_system.find_paint_kit(state.paint_kit));
+                    invalidate_hud_icon(iv);
+                }
                 continue;
+            }
 
             if (!m_originals.contains(handle))
             {
@@ -135,7 +148,13 @@ namespace features::changer
             m_last_active_handle = active_handle;
             const auto applied = m_applied.find(active_handle);
             if (applied != m_applied.end())
-                update_hud_mesh(local.pawn, g_econ_item_system.find_paint_kit(applied->second.paint_kit));
+            {
+                const auto* pk = g_econ_item_system.find_paint_kit(applied->second.paint_kit);
+                update_hud_mesh(local.pawn, pk);
+                detail::rebuild_weapon_paint(systems::g_entities.lookup(active_handle), pk);
+                applied->second.refreshes = refresh_count;
+                applied->second.countdown = refresh_interval;
+            }
         }
     }
 

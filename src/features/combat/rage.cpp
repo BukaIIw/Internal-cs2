@@ -574,7 +574,7 @@ namespace features::combat
             const math::vector3 origin = pre.valid ? pre.networked_origin : local.origin;
             air_ok = landing_soon(local.pawn, origin, velocity);
         }
-        m_stop = cfg.autostop && ready_soon && lethal_ok && (grounded || air_ok);
+        m_stop = cfg.autostop && !nospread && ready_soon && lethal_ok && (grounded || air_ok);
 
         const bool user_attack = frame.held(cstypes::command_buttons::in_attack);
         if (pass)
@@ -676,8 +676,6 @@ namespace features::combat
                         const int count = cmd.history_size();
                         for (int i = index >= 0 ? index : 0; i < count; ++i)
                             cmd.set_history_angles(i, angle);
-                        if (index < 0)
-                            cmd.set_base_angles(angle);
                         debug.nospread = 1;
                         view = angle;
                     }
