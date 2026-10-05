@@ -39,6 +39,7 @@ namespace features::combat
         float armor_ratio = 1.f;
         float headshot_multiplier = 4.f;
         float max_speed = 250.f;
+        float velocity_modifier = 1.f;
         math::qangle punch{};
         math::vector3 eye{};
     };

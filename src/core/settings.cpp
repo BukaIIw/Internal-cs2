@@ -740,6 +740,7 @@ void settings::register_all()
     add("visuals.health", g_visuals.health);
     add("visuals.weapon", g_visuals.weapon);
     add("visuals.distance", g_visuals.distance);
+    add("visuals.flags", g_visuals.flags);
     add("visuals.skeleton", g_visuals.skeleton);
     add("visuals.skeleton_all", g_visuals.skeleton_all);
     add("visuals.hitbox_zones", g_visuals.hitbox_zones);

@@ -10,6 +10,7 @@
 #include "../../core/settings.h"
 #include "../../systems/entities.h"
 #include "../../systems/game_reads.h"
+#include "../../systems/globals.h"
 #include "../../systems/local.h"
 #include "../../ui/render.h"
 #include "../../items.h"
@@ -98,6 +99,8 @@ namespace
         features::combat::hitbox::set boxes{};
         char name[32]{};
         char weapon[64]{};
+        char flags[6][8]{};
+        int flag_count = 0;
     };
 
     struct esp_snapshot
@@ -328,6 +331,33 @@ namespace
         return true;
     }
 
+    void add_flag(esp_player& e, const char* text)
+    {
+        if (e.flag_count >= static_cast<int>(std::size(e.flags)))
+            return;
+        std::snprintf(e.flags[e.flag_count], sizeof(e.flags[0]), "%s", text);
+        ++e.flag_count;
+    }
+
+    void fill_flags(esp_player& e, const systems::entities::player& p, float curtime)
+    {
+        if (p.armor > 0)
+            add_flag(e, p.helmet ? "HK" : "K");
+        const std::uintptr_t pawn = p.pawn;
+        if (systems::reads::field<std::uint8_t>(pawn, SCHEMA("C_CSPlayerPawn", "m_bIsScoped"_hash)))
+            add_flag(e, "ZOOM");
+        if (systems::reads::field<std::uint8_t>(pawn, SCHEMA("C_CSPlayerPawn", "m_bIsDefusing"_hash)))
+            add_flag(e, "DEFUSE");
+        if (systems::reads::field<std::uint8_t>(pawn, SCHEMA("C_CSPlayerPawn", "m_bIsWalking"_hash)))
+            add_flag(e, "WALK");
+        const float flash_end = systems::reads::field<float>(pawn, SCHEMA("C_CSPlayerPawnBase", "m_flFlashBangTime"_hash));
+        if (std::isfinite(flash_end) && curtime > 0.f && flash_end > curtime)
+            add_flag(e, "FLASH");
+        const float modifier = systems::reads::field<float>(pawn, SCHEMA("C_CSPlayerPawn", "m_flVelocityModifier"_hash), 1.f);
+        if (std::isfinite(modifier) && modifier < 0.95f)
+            add_flag(e, "SLOW");
+    }
+
     void build_snapshot(esp_snapshot& snap)
     {
         snap.valid = false;
@@ -345,6 +375,7 @@ namespace
         if (!cfg.esp)
             return;
 
+        const float curtime = static_cast<float>(systems::g_globals.tick_count()) * systems::g_globals.interval();
         const auto players = systems::g_entities.players();
         for (const auto& p : players)
         {
@@ -381,6 +412,9 @@ namespace
                 weapon_name(p.weapon_def, e.weapon, sizeof(e.weapon));
             else
                 e.weapon[0] = '\0';
+            e.flag_count = 0;
+            if (cfg.flags)
+                fill_flags(e, p, curtime);
             ++snap.count;
         }
     }
@@ -606,6 +640,16 @@ namespace
             char t[16];
             std::snprintf(t, sizeof(t), "%.0fm", e.distance);
             outlined_text(draw, ImVec2(feet.x, below), IM_COL32(200, 200, 200, 255), t, true);
+        }
+
+        if (cfg.flags)
+        {
+            const float x = b.x + 4.f;
+            for (int i = 0; i < e.flag_count; ++i)
+            {
+                const ImU32 tint = std::strcmp(e.flags[i], "FLASH") == 0 ? IM_COL32(255, 230, 90, 255) : std::strcmp(e.flags[i], "DEFUSE") == 0 ? IM_COL32(90, 170, 255, 255) : IM_COL32(230, 230, 230, 255);
+                outlined_text(draw, ImVec2(x, a.y + line * static_cast<float>(i)), tint, e.flags[i], false);
+            }
         }
 
         if (cfg.hitbox_zones && e.zones)

@@ -330,7 +330,7 @@ namespace
         const float accurate = max_speed * accurate_speed_fraction;
         const float friction = convar_or(CONVAR("sv_friction"), default_friction) * surface_friction;
         const float stop_speed = convar_or(CONVAR("sv_stopspeed"), default_stop_speed);
-        const float accelerate = convar_or(CONVAR("sv_accelerate"), default_accelerate) * max_speed * cstypes::tick_interval * surface_friction;
+        const float accelerate = convar_or(CONVAR("sv_accelerate"), default_accelerate) * max_speed * std::max(ctx.velocity_modifier, 0.1f) * cstypes::tick_interval * surface_friction;
         int ticks = 0;
         while (std::isfinite(speed) && speed > accurate && ticks < max_stop_ticks)
         {

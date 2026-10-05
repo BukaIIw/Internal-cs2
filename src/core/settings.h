@@ -146,6 +146,7 @@ namespace settings
         bool health = true;
         bool weapon = true;
         bool distance = false;
+        bool flags = false;
         bool skeleton = false;
         bool skeleton_all = false;
         bool hitbox_zones = false;

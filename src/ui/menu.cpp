@@ -269,6 +269,7 @@ namespace
         ui::toggle("Health bar", &v.health);
         ui::toggle("Weapon", &v.weapon);
         ui::toggle("Distance", &v.distance);
+        ui::toggle("Flags", &v.flags);
         ui::toggle("Skeleton", &v.skeleton);
         ui::toggle("All bones", &v.skeleton_all);
         ui::toggle("Hitbox zones", &v.hitbox_zones);
