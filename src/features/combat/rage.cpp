@@ -579,8 +579,11 @@ namespace features::combat
         const bool user_attack = frame.held(cstypes::command_buttons::in_attack);
         if (pass)
         {
-            if (cfg.autofire || user_attack)
+            const bool revolver_ready = !revolver || (ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick <= ctx.tick_base + 1);
+            if ((cfg.autofire || user_attack) && revolver_ready)
                 m_firing = systems::g_view.fire();
+            else if ((cfg.autofire || user_attack) && revolver)
+                systems::g_view.hold_attack();
             const int record_tick = best.tick > 0 ? best.tick : backtrack::current_tick(best.player.pawn);
             if (m_firing && record_tick > 0)
                 systems::g_view.set_render_tick(record_tick + 1);
