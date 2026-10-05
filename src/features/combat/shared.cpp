@@ -192,7 +192,9 @@ namespace
                     return punch;
             }
         }
-        math::qangle punch = reads::field<math::qangle>(pawn, SCHEMA("C_CSPlayerPawn", "m_aimPunchAngle"_hash));
+        if (!services)
+            return {};
+        math::qangle punch = reads::field<math::qangle>(services, SCHEMA("CCSPlayer_AimPunchServices", "m_predictableBaseAngle"_hash));
         punch.z = 0.f;
         return sane_punch(punch) ? punch : math::qangle{};
     }

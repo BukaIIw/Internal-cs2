@@ -9,6 +9,7 @@
 #include "../../systems/entities.h"
 #include "../../systems/game_events.h"
 #include "../../systems/local.h"
+#include "../../systems/local.h"
 #include "../../systems/tracing.h"
 #include <Windows.h>
 #include <algorithm>
@@ -222,11 +223,19 @@ namespace
 
     int server_group(const pending& p)
     {
-        const std::uint32_t offset = SCHEMA("C_CSPlayerPawn", "m_LastHitGroup"_hash);
-        if (!offset || !p.shot.player.pawn)
+        if (p.shot.player.index <= 0)
             return -1;
-        const int group = systems::reads::field<int>(p.shot.player.pawn, offset, -1);
-        return group > 0 && group < 16 ? group : -1;
+        systems::game_events::hurt hurts[max_impacts]{};
+        const int count = systems::game_events::hurts_since(p.time, hurts, max_impacts);
+        const int local = systems::g_local.get().index - 1;
+        for (int i = count - 1; i >= 0; --i)
+        {
+            if (hurts[i].victim != p.shot.player.index - 1 || (local >= 0 && hurts[i].attacker != local))
+                continue;
+            if (hurts[i].hitgroup > 0 && hurts[i].hitgroup < 16)
+                return hurts[i].hitgroup;
+        }
+        return -1;
     }
 
     void match_impact(pending& p)
