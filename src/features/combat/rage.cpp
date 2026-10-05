@@ -297,7 +297,10 @@ namespace
 
     bool revolver_primed(const weapon_context& ctx)
     {
-        return ctx.revolver_ready_tick > 0 && ctx.revolver_ready_tick >= ctx.tick_base && ctx.revolver_ready_tick <= ctx.tick_base + 1;
+        if (ctx.revolver_ready_tick <= 0 || ctx.revolver_ready_tick < ctx.tick_base)
+            return false;
+        const float ready = static_cast<float>(ctx.revolver_ready_tick - ctx.tick_base) + ctx.revolver_ready_frac;
+        return ready <= 1.f;
     }
 
     void cock_revolver(const weapon_context& ctx)

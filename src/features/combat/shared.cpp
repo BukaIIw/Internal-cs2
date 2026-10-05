@@ -249,10 +249,13 @@ namespace features::combat
         if (ctx.def == cstypes::weapon_id::revolver)
         {
             ctx.revolver_ready_tick = reads::field<int>(weapon, SCHEMA("C_CSWeaponBase", "m_nPostponeFireReadyTicks"_hash));
+            ctx.revolver_ready_frac = sane_float(reads::field<float>(weapon, SCHEMA("C_CSWeaponBase", "m_flPostponeFireReadyFrac"_hash)), 0.f, 1.f, 0.f);
             ctx.revolver_hauled = reads::field<std::uint8_t>(weapon, SCHEMA("C_CSWeaponBase", "m_bIsHauledBack"_hash)) != 0;
         }
         const std::uintptr_t weapon_services = reads::field_pointer(local.pawn, SCHEMA("C_BasePlayerPawn", "m_pWeaponServices"_hash));
         const float services_next = weapon_services ? reads::field<float>(weapon_services, SCHEMA("CCSPlayer_WeaponServices", "m_flNextAttack"_hash)) : 0.f;
+        ctx.input_history = weapon_services ? reads::field<std::uint32_t>(weapon_services, SCHEMA("CCSPlayer_WeaponServices", "m_nOldTotalInputHistoryCount"_hash)) : 0;
+        ctx.shoot_history = weapon_services ? reads::field<std::uint32_t>(weapon_services, SCHEMA("CCSPlayer_WeaponServices", "m_nOldTotalShootPositionHistoryCount"_hash)) : 0;
         const bool services_ready = !std::isfinite(services_next) || services_next <= static_cast<float>(tick_base) * cstypes::tick_interval;
         const bool wait_release = reads::field<std::uint8_t>(local.pawn, SCHEMA("C_CSPlayerPawn", "m_bWaitForNoAttack"_hash)) != 0 && !ctx.full_auto && ctx.def != cstypes::weapon_id::revolver;
         ctx.can_fire = ctx.gun && ctx.clip > 0 && next_attack <= tick_base && !ctx.reloading && services_ready && !wait_release;

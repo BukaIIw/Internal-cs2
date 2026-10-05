@@ -71,6 +71,8 @@ namespace
         float inaccuracy = 0.f;
         float spread = 0.f;
         math::vector3 local_velocity{};
+        std::uint32_t input_history = 0;
+        std::uint32_t shoot_history = 0;
         bool has_impact = false;
         math::vector3 impact{};
         math::vector3 impact_direction{};
@@ -326,6 +328,8 @@ namespace
         append_vector(line, p.has_direction ? p.direction : math::vector3{});
         line += ",\"local_velocity\":";
         append_vector(line, p.local_velocity);
+        append_int(line, "input_history", p.input_history);
+        append_int(line, "shoot_history", p.shoot_history);
         line += ",\"target\":{\"name\":";
         append_string(line, p.shot.player.name);
         append_int(line, "health", p.shot.player.health);
@@ -535,6 +539,8 @@ namespace features::combat::shots
         next.inaccuracy = ctx.inaccuracy;
         next.spread = ctx.spread;
         next.local_velocity = systems::g_local.get().velocity;
+        next.input_history = ctx.input_history;
+        next.shoot_history = ctx.shoot_history;
         math::vector3 direction{};
         if (spread::bullet(ctx, shot.view, shot.recoil, shot.tick, direction))
         {

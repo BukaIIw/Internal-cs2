@@ -22,9 +22,12 @@ namespace features::combat
         int ticks_to_fire = 0;
         int tick_base = 0;
         int revolver_ready_tick = 0;
+        float revolver_ready_frac = 0.f;
         bool revolver_hauled = false;
         int shots_fired = 0;
         float last_shot_time = 0.f;
+        std::uint32_t input_history = 0;
+        std::uint32_t shoot_history = 0;
         int group = 0;
         int clip = 0;
         int bullets = 1;
