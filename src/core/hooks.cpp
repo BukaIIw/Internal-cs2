@@ -282,15 +282,26 @@ namespace
     std::atomic<unsigned> g_diag_create_move{ 0 };
     std::atomic<unsigned> g_diag_merge{ 0 };
 
+    std::atomic<int> g_diag_reports{ 0 };
+
+    std::uintptr_t hook_rva(const char* name)
+    {
+        std::lock_guard lock(g_hooks_mutex);
+        const auto client = reinterpret_cast<std::uintptr_t>(GetModuleHandleA("client.dll"));
+        for (const auto& h : g_hooks)
+            if (h.name == name)
+                return client && h.target > client ? h.target - client : h.target;
+        return 0;
+    }
+
     void diagnose()
     {
         static ULONGLONG last = 0;
-        static int reports = 0;
         const ULONGLONG now = GetTickCount64();
-        if (reports >= 40 || now - last < 5000)
+        if (g_diag_reports.load() >= 12 || now - last < 5000)
             return;
         last = now;
-        ++reports;
+        ++g_diag_reports;
 
         const auto local = systems::g_local.get();
         const auto players = systems::g_entities.players();
@@ -309,9 +320,9 @@ namespace
         }
         logs::Add(logs::Info, "diag: present=%u render=%u fsn=%u cm=%u merge=%u schema=%d",
             g_diag_present.load(), g_diag_render.load(), g_diag_fsn.load(), g_diag_create_move.load(), g_diag_merge.load(), schema::ready() ? 1 : 0);
-        logs::Add(logs::Info, "diag: entsys=%p vm=%p ctrl=%p pawn=%p team=%d hp=%d alive=%d",
-            reinterpret_cast<void*>(addresses::globals::entity_system()), reinterpret_cast<void*>(addresses::globals::view_matrix()),
-            reinterpret_cast<void*>(local.controller), reinterpret_cast<void*>(local.pawn), local.team, local.health, local.is_alive ? 1 : 0);
+        logs::Add(logs::Info, "diag: team=%d hp=%d alive=%d create_move=client+%llX ctrl=%p pawn=%p",
+            local.team, local.health, local.is_alive ? 1 : 0, static_cast<unsigned long long>(hook_rva("CreateMove")),
+            reinterpret_cast<void*>(local.controller), reinterpret_cast<void*>(local.pawn));
         logs::Add(logs::Info, "diag: players valid=%d alive=%d enemy=%d hp_off=%X team_off=%X node_off=%X pawn_off=%X origin_off=%X",
             valid, alive, enemies,
             SCHEMA("C_BaseEntity", "m_iHealth"_hash), SCHEMA("C_BaseEntity", "m_iTeamNum"_hash), SCHEMA("C_BaseEntity", "m_pGameSceneNode"_hash),
@@ -329,6 +340,7 @@ namespace
     {
         static std::uintptr_t last_controller = 0;
         static std::uintptr_t last_pawn = 0;
+        static int last_team = 0;
 
         const auto local = systems::g_local.get();
         if (last_controller && local.controller != last_controller)
@@ -338,14 +350,18 @@ namespace
         }
         if (local.controller && local.controller != last_controller)
         {
+            g_diag_reports.store(0);
             events::publish(events::type::level_init);
             logs::Add(logs::Info, "Level loaded");
         }
         if (local.pawn != last_pawn)
             events::publish(events::type::local_pawn_changed);
 
+        if (local.team != last_team)
+            g_diag_reports.store(0);
         last_controller = local.controller;
         last_pawn = local.pawn;
+        last_team = local.team;
     }
 
     void publish_unload_once()
